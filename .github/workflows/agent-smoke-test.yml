@@ -1,0 +1,34 @@
+name: Adventure Planner - live agent test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: adventure-planner-live-test
+  cancel-in-progress: false
+jobs:
+  live-test:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Run one live agent scenario
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "Add the OPENAI_API_KEY repository secret before running."
+            exit 1
+          fi
+          PREFS=$(node -e 'const format = offset => new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(Date.now()+offset*86400000)); console.log(JSON.stringify({startDate:format(1),endDate:format(2),maxTransferMinutes:60}))')
+          node --use-env-proxy integrations/agent-demo.mjs "I want to ski and trail run in Tahoe. Please check the weather for my travel dates and compare the drive between Tahoe North Shore and the Sierra foothills against my 60-minute limit. Explain what is still unverified." "$PREFS" | tee agent-result.json
+          node --input-type=module -e 'import fs from "node:fs"; const r=JSON.parse(fs.readFileSync("agent-result.json","utf8")); const tools=r.trace.filter(t=>t.type==="tool").map(t=>t.detail); if (r.trace.some(t=>["error","reject","limit"].includes(t.type)) || !tools.includes("get_weather_forecast") || !tools.includes("get_drive_estimate")) {console.error("Smoke test: expected both tools and no execution errors."); process.exit(1)} console.log("Smoke test: both tools called. Review evidence status and final answer separately.")'

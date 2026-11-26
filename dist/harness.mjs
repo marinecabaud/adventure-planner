@@ -10,11 +10,11 @@ export const toolDefinitions = [
 const outcomes=new Set(['results','clarify','unsupported','insufficient']);
 const sports=['ski / snowboard','kitesurf','hiking','mountain biking','surf','trail running','cycling'];
 const clean=s=>typeof s==='string'?s.trim():'';
-export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null}){
+export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,onTrace=()=>{}}){
   if(typeof model?.next!=='function'&&typeof model?.createSession!=='function')throw new Error('Model adapter must implement next(context) or createSession()');
   return {async run(request){
     const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];let routeEvidence=[];
-    const emit=(type,detail)=>trace.push({step:trace.length+1,type,detail});
+    const emit=(type,detail)=>{const event={step:trace.length+1,type,detail};trace.push(event);try{onTrace(event)}catch{}};
     function finish(status,message,candidates=[]){
       emit('finish',status);
       return {status,message,candidates,weatherEvidence,routeEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:'fixture'};

@@ -9,7 +9,7 @@ test('worker exports nested OTLP trace with actual decisions, usage, tool and fi
  const app=makeWorker('',{telemetryFactory:env=>createLangfuseTrace(env,{fetchFn:async(url,opts)=>{exported={url,opts};return new Response('{}')}}),modelFactory:({onUsage})=>({createSession:()=>({async next({events}){onUsage({input_tokens:100,output_tokens:25});return events.length?{type:'final',status:'insufficient',message:'private final answer',candidate_ids:[]}:{type:'tool',name:'find_candidates',args:{scenario:'kite'}}}})})});
  const r=await app.fetch(request(),env,{waitUntil:p=>pending.push(p)});
  const result=await r.json();await Promise.all(pending);
- assert.equal(r.status,200);assert.equal(result.status,'insufficient');assert.match(result.traceId,/^[0-9a-f]{32}$/);
+ assert.equal(r.status,200);assert.equal(result.status,'insufficient');assert.equal(result.telemetryStatus,'exported');assert.match(result.traceId,/^[0-9a-f]{32}$/);
  assert.equal(exported.url,'https://us.cloud.langfuse.com/api/public/otel/v1/traces');assert.equal(exported.opts.headers['x-langfuse-ingestion-version'],'4');
  assert.equal(exported.opts.headers.Authorization,'Basic '+btoa('pk-lf-test:sk-lf-test'));
  const body=exported.opts.body;
@@ -29,5 +29,10 @@ test('bad region or absent credentials do not export or alter the response',asyn
  }
 });
 test('failed export is best effort and does not throw',async()=>{
- const t=createLangfuseTrace(env,{fetchFn:async()=>new Response('untrusted failure body',{status:403})});t.finish({httpStatus:502,result:{},errorCode:'model_error'});assert.equal(await t.export(),false);
+ const t=createLangfuseTrace(env,{fetchFn:async()=>new Response('untrusted failure body',{status:403})});t.finish({httpStatus:502,result:{},errorCode:'model_error'});assert.equal(await t.export(),false);assert.equal(t.exportStatus,'http_403');
+});
+
+test('diagnostic categories identify network errors without exporting sensitive exception details',async()=>{
+ const trace=createLangfuseTrace(env,{fetchFn:async()=>{throw new TypeError('Network connection lost; private diagnostic')}});trace.finish({httpStatus:200,result:{status:'clarify'}});
+ assert.equal(await trace.export(),false);assert.equal(trace.exportStatus,'fetch_network');
 });

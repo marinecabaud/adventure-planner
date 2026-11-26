@@ -30,7 +30,15 @@ export function createLangfuseTrace(env,{fetchFn=fetch}={}){
     onTrace(event){if(event.type==='tool'&&lfTools.has(event.detail)){closeTool(undefined,true);pendingTool={name:event.detail,start:lfTime()}}},
     onUsage(value){usage=value},
     wrapModel(model,name){
-      return {createSession(){const session=typeof model.createSession==='function'?model.createSession():model;return {async next(context){
+      return {...(typeof model.extractIntent==='function'?{async extractIntent(context){
+        const start=lfTime();usage=null;let failed=false;
+        try{return await model.extractIntent(context)}catch(error){failed=true;throw error}
+        finally{
+          const attributes=[lfAttr('langfuse.observation.model.name',name)];
+          if(usage&&Number.isSafeInteger(usage.input_tokens)&&Number.isSafeInteger(usage.output_tokens)&&usage.input_tokens>=0&&usage.output_tokens>=0)attributes.push(lfAttr('langfuse.observation.usage_details',{input:usage.input_tokens,output:usage.output_tokens,total:usage.input_tokens+usage.output_tokens}));
+          spans.push(span('Intent extraction','generation',start,{status:failed?'error':'completed'},attributes,failed));
+        }
+      }}:{}),createSession(){const session=typeof model.createSession==='function'?model.createSession():model;return {async next(context){
         const last=context.events.at(-1);if(last?.kind==='observation')closeTool(last.data);
         const start=lfTime(),index=++generation;usage=null;
         let output={decision:'error'},failed=false;

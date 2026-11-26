@@ -12,7 +12,7 @@ const lfStatus=x=>lfOutcomes.has(x)?x:'unknown';
 const lfObs=x=>({status:lfProviderStates.has(x?.status)?x.status:lfProviderStates.has(x?.data?.status)?x.data.status:undefined,count:Array.isArray(x)?x.length:undefined,comparison:['within_limit','exceeds_limit','unknown'].includes(x?.comparison)?x.comparison:undefined});
 export function createLangfuseTrace(env,{fetchFn=fetch}={}){
   const traceId=lfRandom(16),rootId=lfRandom(8),started=lfTime(),spans=[];
-  let pendingTool=null,usage=null,generation=0,closed=false;
+  let pendingTool=null,usage=null,generation=0,closed=false,exportStatus="not_attempted";
   const span=(name,type,begin,output,extra=[],error=false,id=lfRandom(8),parent=rootId)=>({
     traceId,spanId:id,...(parent?{parentSpanId:parent}:{}),name,kind:1,
     startTimeUnixNano:begin,endTimeUnixNano:lfTime(),
@@ -26,6 +26,7 @@ export function createLangfuseTrace(env,{fetchFn=fetch}={}){
   const config=()=>{const base=String(env.LANGFUSE_BASE_URL||'').replace(/\/$/,'');return lfHosts.has(base)&&typeof env.LANGFUSE_PUBLIC_KEY==='string'&&env.LANGFUSE_PUBLIC_KEY.startsWith('pk-lf-')&&typeof env.LANGFUSE_SECRET_KEY==='string'&&env.LANGFUSE_SECRET_KEY.startsWith('sk-lf-')?base:null};
   return {
     traceId,
+    get exportStatus(){return exportStatus},
     onTrace(event){if(event.type==='tool'&&lfTools.has(event.detail)){closeTool(undefined,true);pendingTool={name:event.detail,start:lfTime()}}},
     onUsage(value){usage=value},
     wrapModel(model,name){
@@ -51,13 +52,30 @@ export function createLangfuseTrace(env,{fetchFn=fetch}={}){
       spans.push(span('Adventure Planner /api/plan','agent',started,output,[lfAttr('langfuse.observation.input',inputMetadata)],httpStatus>=400,rootId,null));
     },
     async export(){
-      const base=config();if(!base||!closed)return false;
+      const base=config();if(!base||!closed){exportStatus='not_configured';return false}
+      let stage='authorization';
       try{
-        const response=await fetchFn(base+'/api/public/otel/v1/traces',{method:'POST',redirect:'error',headers:{'Authorization':'Basic '+btoa(env.LANGFUSE_PUBLIC_KEY+':'+env.LANGFUSE_SECRET_KEY),'Content-Type':'application/json','x-langfuse-ingestion-version':'4'},body:JSON.stringify({resourceSpans:[{resource:{attributes:[lfAttr('service.name','adventure-planner')]},scopeSpans:[{scope:{name:'adventure-planner.harness'},spans}]}]}),signal:AbortSignal.timeout(8000)});
-        if(!response.ok){console.warn('Langfuse export HTTP '+response.status+' trace '+traceId);return false}
-        console.info('Langfuse trace exported '+traceId);
+        const keys=[env.LANGFUSE_PUBLIC_KEY.trim(),env.LANGFUSE_SECRET_KEY.trim()];
+        if(!keys.every(k=>/^[\x21-\x7E]+$/.test(k))){exportStatus='invalid_key_format';console.warn('Langfuse '+exportStatus+' trace '+traceId);return false}
+        const auth='Basic '+btoa(keys.join(':'));
+        stage='encode';
+        const body=JSON.stringify({resourceSpans:[{resource:{attributes:[lfAttr('service.name','adventure-planner')]},scopeSpans:[{scope:{name:'adventure-planner.harness'},spans}]}]});
+        stage='fetch';
+        // Manual redirects expose a redirect error without forwarding credentials.
+        const response=await fetchFn(base+'/api/public/otel/v1/traces',{method:'POST',redirect:'manual',headers:{'Authorization':auth,'Content-Type':'application/json','x-langfuse-ingestion-version':'4'},body,signal:AbortSignal.timeout(8000)});
+        if(!response.ok){exportStatus='http_'+response.status;console.warn('Langfuse '+exportStatus+' trace '+traceId);return false}
+        stage='response';
+        // OTLP may accept a request but reject one or more spans.
+        const receipt=await response.json().catch(()=>null);
+        if(Number(receipt?.partialSuccess?.rejectedSpans)>0){exportStatus='partial_rejection';console.warn('Langfuse '+exportStatus+' trace '+traceId);return false}
+        exportStatus='exported';console.info('Langfuse trace exported '+traceId);
         return true;
-      }catch{console.warn('Langfuse export unavailable trace '+traceId);return false}
+      }catch(e){
+        const name=e?.name||'',message=typeof e?.message==='string'?e.message:'';
+        const reason=/timeout|timed out/i.test(message)||name==='TimeoutError'?'timeout':/redirect/i.test(message)?'redirect':/blocked|denied|disallowed|not permitted|forbidden|policy/i.test(message)?'blocked':/dns|resolve|host not found/i.test(message)?'dns':/tls|certificate|ssl/i.test(message)?'tls':/network|fetch failed|connect|socket/i.test(message)?'network':name==='AbortError'?'aborted':name==='InvalidCharacterError'?'invalid_character':name==='TypeError'?'type_error':'unknown';
+        exportStatus=stage+'_'+reason;console.warn('Langfuse '+exportStatus+' trace '+traceId);
+        return false;
+      }
     }
   };
 }

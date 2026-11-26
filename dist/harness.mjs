@@ -10,21 +10,21 @@ export const toolDefinitions = [
 const outcomes=new Set(['results','clarify','unsupported','insufficient']);
 const sports=['ski / snowboard','kitesurf','hiking','mountain biking','surf','trail running','cycling'];
 const clean=s=>typeof s==='string'?s.trim():'';
-export function createHarness({model,fixtures,maxSteps=6,maxCalls=4}){
+export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null}){
   if(!model?.next)throw new Error('Model adapter must implement next(context)');
   return {async run(request){
-    const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();
+    const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];
     const emit=(type,detail)=>trace.push({step:trace.length+1,type,detail});
     function finish(status,message,candidates=[]){
       emit('finish',status);
-      return {status,message,candidates,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:'fixture'};
+      return {status,message,candidates,weatherEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:'fixture'};
     }
     if(!clean(request?.query))return finish('clarify','Tell me which sports, dates or destination you have in mind.');
-    const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin)}};
+    const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin),startDate:clean(request.preferences?.startDate),endDate:clean(request.preferences?.endDate)}};
     emit('request','User intent received');
     for(let i=0;i<maxSteps;i++){
       let action;
-      try{action=await model.next({instructions,toolDefinitions,state:structuredClone(state),events:structuredClone(events)});}
+      try{action=await model.next({instructions,toolDefinitions:weatherTool?[...toolDefinitions,{name:'get_weather_forecast',description:'Get short-term NWS weather for an existing candidate and explicit travel dates; does not verify activity availability.',parameters:{type:'object',properties:{candidate_id:{type:'string'}},required:['candidate_id'],additionalProperties:false}}]:toolDefinitions,state:structuredClone(state),events:structuredClone(events)});}
       catch(e){emit('error','Model adapter failed');return finish('insufficient','The agent could not complete this request.');}
       events.push({kind:'decision',action});
       if(!action||typeof action!=='object'){emit('reject','Invalid action');return finish('insufficient','The agent returned an invalid action.');}
@@ -41,6 +41,14 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4}){
         }else if(action.name==='check_evidence'&&Object.keys(args).length===1&&Array.isArray(args.candidate_ids)&&args.candidate_ids.length<=3&&args.candidate_ids.every(id=>available.has(id))){
           const rows=args.candidate_ids.map(id=>({id,requiredChecks:available.get(id).check,verified:false,sourceType:'illustrative fixture'}));rows.forEach(x=>checked.add(x.id));
           calls++;emit('tool',action.name);events.push({kind:'observation',name:action.name,data:rows});
+        }else if(weatherTool&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&state.preferences.startDate&&state.preferences.endDate){
+          const candidate=available.get(args.candidate_id);
+          calls++;emit('tool',action.name);
+          let data;
+          try{data=await weatherTool({latitude:candidate.lat,longitude:candidate.lon,startDate:state.preferences.startDate,endDate:state.preferences.endDate});}
+          catch{data={status:'unavailable',reason:'Weather MCP call failed.'};}
+          if(!data||typeof data.status!=='string')data={status:'unavailable',reason:'Invalid weather tool response.'};
+          weatherEvidence.push({candidate_id:candidate.id,data});events.push({kind:'observation',name:action.name,data:{candidate_id:candidate.id,...data}});
         }else{emit('reject','Unregistered tool or invalid arguments');return finish('insufficient','The agent requested an unsupported research action.');}
       }else if(action.type==='final'){
         if(!outcomes.has(action.status)||!clean(action.message)){emit('reject','Invalid final response');return finish('insufficient','The agent could not produce a valid response.');}

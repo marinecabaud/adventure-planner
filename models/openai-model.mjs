@@ -19,7 +19,7 @@ Use the results of actual tools before claiming an estimate. For mandatory const
 Speak the user's language. Return no candidate IDs unless status is results. Do not make bookings or claim tools outside the registry were executed.`;
 const isObject=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const sameKeys=(obj,keys)=>isObject(obj)&&Object.keys(obj).length===keys.length&&keys.every(k=>Object.hasOwn(obj,k));
-export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL||defaultModel,fetchFn=fetch,onError=()=>{}}={}){
+export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=process.env.OPENAI_MODEL||defaultModel,fetchFn=fetch,onError=()=>{},onUsage=()=>{}}={}){
   if(typeof apiKey!=='string'||!apiKey.trim())throw Error('OPENAI_API_KEY is required. Set it in a local .env file or environment variable.');
   if(typeof model!=='string'||!model.trim())throw Error('OPENAI_MODEL must be a model name.');
   return {createSession(){
@@ -48,6 +48,7 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
           throw Error('OpenAI HTTP '+response.status+code);
         }
         const data=await response.json();
+        try{onUsage({input_tokens:data?.usage?.input_tokens,output_tokens:data?.usage?.output_tokens})}catch{}
         if(data?.status!=='completed'||!Array.isArray(data.output))throw new DecisionError('Model response incomplete');
         const calls=data.output.filter(item=>item.type==='function_call');
         if(calls.length!==1)throw new DecisionError('Expected exactly one function call');

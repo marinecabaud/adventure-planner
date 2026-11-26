@@ -7,7 +7,8 @@
     "test": "node --test tests/*.test.mjs",
     "weather:mcp": "node --use-env-proxy integrations/weather-demo.mjs",
     "weather:server": "node --use-env-proxy integrations/weather-mcp-server.mjs",
-    "routing:demo": "node --use-env-proxy integrations/routing-demo.mjs"
+    "routing:demo": "node --use-env-proxy integrations/routing-demo.mjs",
+    "agent:live": "node --use-env-proxy --env-file-if-exists=.env integrations/agent-demo.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

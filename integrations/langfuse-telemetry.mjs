@@ -2,14 +2,14 @@
  * Only bounded execution metadata is exported: never prompts, tool arguments,
  * response text, coordinates, visitor identity, or credentials. */
 const lfHosts=new Set(['https://us.cloud.langfuse.com','https://cloud.langfuse.com','https://jp.cloud.langfuse.com']);
-const lfTools=new Set(['find_candidates','check_evidence','get_weather_forecast','get_drive_estimate']);
+const lfTools=new Set(['search_activity_locations','find_candidates','check_evidence','get_weather_forecast','get_drive_estimate']);
 const lfOutcomes=new Set(['results','clarify','unsupported','insufficient']);
-const lfProviderStates=new Set(['forecast_available','partial','outside_forecast_horizon','unavailable','invalid_request','estimate_available','no_route']);
+const lfProviderStates=new Set(['candidates_found','no_candidates','forecast_available','partial','outside_forecast_horizon','unavailable','invalid_request','estimate_available','no_route']);
 const lfRandom=n=>Array.from(crypto.getRandomValues(new Uint8Array(n)),b=>b.toString(16).padStart(2,'0')).join('');
 const lfTime=()=>String(BigInt(Date.now())*1000000n);
 const lfAttr=(key,value)=>({key,value:{stringValue:typeof value==='string'?value:JSON.stringify(value)}});
 const lfStatus=x=>lfOutcomes.has(x)?x:'unknown';
-const lfObs=x=>({status:lfProviderStates.has(x?.status)?x.status:lfProviderStates.has(x?.data?.status)?x.data.status:undefined,count:Array.isArray(x)?x.length:undefined,comparison:['within_limit','exceeds_limit','unknown'].includes(x?.comparison)?x.comparison:undefined});
+const lfObs=x=>({status:lfProviderStates.has(x?.status)?x.status:lfProviderStates.has(x?.data?.status)?x.data.status:undefined,count:Array.isArray(x)?x.length:Array.isArray(x?.candidates)?x.candidates.length:undefined,comparison:['within_limit','exceeds_limit','unknown'].includes(x?.comparison)?x.comparison:undefined});
 export function createLangfuseTrace(env,{fetchFn=fetch}={}){
   const traceId=lfRandom(16),rootId=lfRandom(8),started=lfTime(),spans=[];
   let pendingTool=null,usage=null,generation=0,closed=false,exportStatus="not_attempted";

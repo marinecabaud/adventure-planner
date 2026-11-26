@@ -36,3 +36,19 @@ test('diagnostic categories identify network errors without exporting sensitive 
  const trace=createLangfuseTrace(env,{fetchFn:async()=>{throw new TypeError('Network connection lost; private diagnostic')}});trace.finish({httpStatus:200,result:{status:'clarify'}});
  assert.equal(await trace.export(),false);assert.equal(trace.exportStatus,'fetch_network');
 });
+
+
+test('production wrapper forwards intent extraction, returns normalized fields and traces only safe metadata',async()=>{
+ let exported;
+ const app=makeWorker('',{telemetryFactory:env=>createLangfuseTrace(env,{fetchFn:async(_url,opts)=>{exported=opts.body;return new Response('{}')}}),modelFactory:({onUsage})=>({
+  async extractIntent({referenceDate}){onUsage({input_tokens:61,output_tokens:21});return {destination:'private destination',destinationScope:'specific',sports:['Ski / snowboard'],ambiguousCycling:false,dateStatus:'resolved',dateIntent:'specific dates',startDate:referenceDate,endDate:referenceDate,explicitSkill:null,skillBySport:[],origin:'private origin',maxOriginDriveMinutes:null,maxTransferMinutes:null,responseLanguage:'en'}},
+  createSession:()=>({async next({state}){assert.equal(state.normalizedIntent.skill,'Intermediate');assert.equal(state.preferences.startDate,state.normalizedIntent.startDate);return {type:'final',status:'insufficient',message:'No verified itinerary.',candidate_ids:[]}}})
+ })});
+ const res=await app.fetch(request(),env); const result=await res.json();
+ assert.equal(res.status,200);assert.equal(result.normalizedIntent.skill,'Intermediate');assert.match(result.message,/assume intermediate/i);
+ assert.ok(result.trace.some(e=>e.type==='intent'));assert.equal(result.telemetryStatus,'exported');
+ assert.ok(!exported.includes('private destination'));assert.ok(!exported.includes('private user prompt'));
+ const spans=JSON.parse(exported).resourceSpans[0].scopeSpans[0].spans;
+ const extraction=spans.find(x=>x.name==='Intent extraction');assert.ok(extraction);
+ const usage=extraction.attributes.find(a=>a.key==='langfuse.observation.usage_details');assert.deepEqual(JSON.parse(usage.value.stringValue),{input:61,output:21,total:82});
+});

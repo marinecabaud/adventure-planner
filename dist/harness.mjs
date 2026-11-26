@@ -11,7 +11,7 @@ export const toolDefinitions = [
 const outcomes=new Set(['results','clarify','unsupported','insufficient']);
 const sports=['ski / snowboard','kitesurf','hiking','mountain biking','surf','trail running','cycling'];
 const clean=s=>typeof s==='string'?s.trim():'';
-export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,onTrace=()=>{},clock=()=>new Date()}){
+export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,activitySearchTool=null,onTrace=()=>{},clock=()=>new Date()}){
   if(typeof model?.next!=='function'&&typeof model?.createSession!=='function')throw new Error('Model adapter must implement next(context) or createSession()');
   return {async run(request){
     const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];let routeEvidence=[];let normalizedIntent=null;
@@ -19,7 +19,7 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
     function finish(status,message,candidates=[]){
       emit('finish',status);
       const disclosure=assumptionMessage(normalizedIntent);
-      return {status,message:disclosure?disclosure+' '+message:message,candidates,normalizedIntent,weatherEvidence,routeEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:'fixture'};
+      return {status,message:disclosure?disclosure+' '+message:message,candidates,normalizedIntent,weatherEvidence,routeEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:activitySearchTool&&normalizedIntent?'web_discovery':'fixture'};
     }
     if(!clean(request?.query))return finish('clarify','Tell me which sports, dates or destination you have in mind.');
     const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin),startDate:clean(request.preferences?.startDate),endDate:clean(request.preferences?.endDate),maxTransferMinutes:Number.isFinite(request.preferences?.maxTransferMinutes)&&request.preferences.maxTransferMinutes>0?request.preferences.maxTransferMinutes:null}};
@@ -39,7 +39,10 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
       }
     }
     const session=typeof model.createSession==='function'?model.createSession():model;
-    const registeredTools=[...toolDefinitions];
+    const liveDiscovery=!!(activitySearchTool&&normalizedIntent?.sports.length);
+    const registeredTools=liveDiscovery?[{name:'search_activity_locations',description:'Search real California locations for the normalized request. Returns source-backed provisional candidates, not verified availability.',parameters:{type:'object',properties:{},required:[],additionalProperties:false}},toolDefinitions[1]]:[...toolDefinitions];
+    if(liveDiscovery)registeredTools[1]={...toolDefinitions[1],description:'Identify remaining checks for real candidate areas. Does not verify opening or safety.'};
+    let searched=false;
     if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible))registeredTools.push({name:'get_weather_forecast',description:'Get short-term NWS weather for an existing candidate and explicit travel dates; does not verify activity availability.',parameters:{type:'object',properties:{candidate_id:{type:'string'}},required:['candidate_id'],additionalProperties:false}});
     if(routeTool)registeredTools.push({name:'get_drive_estimate',description:'Estimate road travel between two known representative candidate areas; no live traffic or access verification.',parameters:{type:'object',properties:{from_candidate_id:{type:'string'},to_candidate_id:{type:'string'}},required:['from_candidate_id','to_candidate_id'],additionalProperties:false}});
     for(let i=0;i<maxSteps;i++){
@@ -52,16 +55,22 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
         if(calls>=maxCalls){emit('limit','Tool budget reached');return finish('insufficient','The research limit was reached before enough evidence was available.');}
         const args=action.args;
         if(!args||typeof args!=='object'||Array.isArray(args)){emit('reject','Invalid tool arguments');return finish('insufficient','The research request was invalid.');}
-        if(action.name==='find_candidates'&&Object.keys(args).length===1&&Object.hasOwn(fixtures,args.scenario)){
+        if(liveDiscovery&&action.name==='search_activity_locations'&&Object.keys(args).length===0&&!searched){
+          searched=true;calls++;emit('tool',action.name);
+          let result;try{result=await activitySearchTool(normalizedIntent)}catch{result={status:'unavailable',candidates:[]}}
+          const records=Array.isArray(result?.candidates)?result.candidates.slice(0,3).filter(x=>x.evidence==='web_discovery'&&x.geography==='California'&&typeof x.sourceUrl==='string'&&x.sourceUrl.startsWith('https://')):[];
+          records.forEach(x=>{available.set(x.id,x);checked.add(x.id)});
+          events.push({kind:'observation',name:action.name,data:{status:result?.status||'unavailable',candidates:records}});
+        }else if(!liveDiscovery&&action.name==='find_candidates' &&Object.keys(args).length===1&&Object.hasOwn(fixtures,args.scenario)){
           if(!['tahoe','kite','santa'].includes(args.scenario)){emit('reject','Unknown scenario');return finish('insufficient','Unknown demo scenario.');}
           const rows=fixtures[args.scenario].slice(0,3).filter(x=>x.lat>=32.5&&x.lat<=42&&x.lon>=-124.6&&x.lon<=-114);
           const records=rows.map((x,id)=>({id:args.scenario+'-'+id,...x,geography:'California',evidence:'fixture'}));
           records.forEach(x=>available.set(x.id,x));
           calls++;emit('tool',action.name);events.push({kind:'observation',name:action.name,data:records});
         }else if(action.name==='check_evidence'&&Object.keys(args).length===1&&Array.isArray(args.candidate_ids)&&args.candidate_ids.length<=3&&args.candidate_ids.every(id=>available.has(id))){
-          const rows=args.candidate_ids.map(id=>({id,requiredChecks:available.get(id).check,verified:false,sourceType:'illustrative fixture'}));rows.forEach(x=>checked.add(x.id));
+          const rows=args.candidate_ids.map(id=>({id,requiredChecks:available.get(id).check,verified:false,sourceType:available.get(id).evidence}));rows.forEach(x=>checked.add(x.id));
           calls++;emit('tool',action.name);events.push({kind:'observation',name:action.name,data:rows});
-        }else if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible)&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&state.preferences.startDate&&state.preferences.endDate){
+        }else if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible)&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&Number.isFinite(available.get(args.candidate_id).lat)&&Number.isFinite(available.get(args.candidate_id).lon)&&state.preferences.startDate&&state.preferences.endDate){
           const candidate=available.get(args.candidate_id);
           calls++;emit('tool',action.name);
           let data;
@@ -69,7 +78,7 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
           catch{data={status:'unavailable',reason:'Weather MCP call failed.'};}
           if(!data||typeof data.status!=='string')data={status:'unavailable',reason:'Invalid weather tool response.'};
           weatherEvidence.push({candidate_id:candidate.id,data});events.push({kind:'observation',name:action.name,data:{candidate_id:candidate.id,...data}});
-        }else if(routeTool&&action.name==='get_drive_estimate'&&Object.keys(args).length===2&&available.has(args.from_candidate_id)&&available.has(args.to_candidate_id)&&args.from_candidate_id!==args.to_candidate_id){
+        }else if(routeTool&&action.name==='get_drive_estimate'&&Object.keys(args).length===2&&available.has(args.from_candidate_id)&&available.has(args.to_candidate_id)&&args.from_candidate_id!==args.to_candidate_id&&[args.from_candidate_id,args.to_candidate_id].every(id=>Number.isFinite(available.get(id).lat)&&Number.isFinite(available.get(id).lon))){
           const from=available.get(args.from_candidate_id),to=available.get(args.to_candidate_id);
           calls++;emit('tool',action.name);
           let data;
@@ -88,6 +97,7 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
         if(!Array.isArray(ids)||ids.length===0||ids.length>3||new Set(ids).size!==ids.length||ids.some(id=>!available.has(id)||!checked.has(id))){
           emit('reject','Result lacks candidate and evidence provenance');return finish('insufficient','The candidate evidence was incomplete.');
         }
+        if(liveDiscovery&&(normalizedIntent.maxOriginDriveMinutes||(normalizedIntent.maxTransferMinutes&&!routeEvidence.some(e=>e.comparison==='within_limit'))))return finish('insufficient',normalizedIntent.responseLanguage==='fr'?'Je ne peux pas vérifier la contrainte de trajet.':'I could not verify the required travel limit.');
         return finish('results',clean(action.message),ids.map(id=>available.get(id)));
       }else{emit('reject','Unknown action type');return finish('insufficient','The agent returned an unsupported action.');}
     }

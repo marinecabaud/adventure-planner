@@ -1,3 +1,4 @@
+import {normalizeIntent,referenceDateAt,assumptionMessage} from './intent.mjs';
 /** Model-independent execution harness; candidate search uses illustrative fixtures; optional evidence tools use adapters. */
 export const instructions = `You are Adventure Planner, a California-only multi-sport travel assistant.
 Respect mandatory constraints and skill level per sport. Distinguish seasonal patterns from live conditions.
@@ -10,21 +11,36 @@ export const toolDefinitions = [
 const outcomes=new Set(['results','clarify','unsupported','insufficient']);
 const sports=['ski / snowboard','kitesurf','hiking','mountain biking','surf','trail running','cycling'];
 const clean=s=>typeof s==='string'?s.trim():'';
-export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,onTrace=()=>{}}){
+export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,onTrace=()=>{},clock=()=>new Date()}){
   if(typeof model?.next!=='function'&&typeof model?.createSession!=='function')throw new Error('Model adapter must implement next(context) or createSession()');
   return {async run(request){
-    const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];let routeEvidence=[];
+    const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];let routeEvidence=[];let normalizedIntent=null;
     const emit=(type,detail)=>{const event={step:trace.length+1,type,detail};trace.push(event);try{onTrace(event)}catch{}};
     function finish(status,message,candidates=[]){
       emit('finish',status);
-      return {status,message,candidates,weatherEvidence,routeEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:'fixture'};
+      const disclosure=assumptionMessage(normalizedIntent);
+      return {status,message:disclosure?disclosure+' '+message:message,candidates,normalizedIntent,weatherEvidence,routeEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:'fixture'};
     }
     if(!clean(request?.query))return finish('clarify','Tell me which sports, dates or destination you have in mind.');
     const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin),startDate:clean(request.preferences?.startDate),endDate:clean(request.preferences?.endDate),maxTransferMinutes:Number.isFinite(request.preferences?.maxTransferMinutes)&&request.preferences.maxTransferMinutes>0?request.preferences.maxTransferMinutes:null}};
     emit('request','User intent received');
+    if(typeof model.extractIntent==='function'){
+      try{
+        const referenceDate=referenceDateAt(clock());
+        normalizedIntent=normalizeIntent(await model.extractIntent({query:state.query,preferences:state.preferences,referenceDate}),state.preferences,referenceDate);
+        state.normalizedIntent=normalizedIntent;
+        Object.assign(state.preferences,{startDate:normalizedIntent.startDate||'',endDate:normalizedIntent.endDate||'',skill:normalizedIntent.skill||'',origin:normalizedIntent.origin||'',maxTransferMinutes:normalizedIntent.maxTransferMinutes});
+        emit('intent','Normalized intent ready');
+      }catch{emit('error','Intent normalization failed');return finish('insufficient','I could not understand this request reliably. Please try again.');}
+      if(normalizedIntent.scope==='unsupported')return finish('unsupported',normalizedIntent.responseLanguage==='fr'?'Je couvre les destinations en Californie uniquement.':'I cover California destinations only.');
+      if(['invalid','ambiguous'].includes(normalizedIntent.dateStatus)){
+        const invalid=normalizedIntent.dateStatus==='invalid';
+        return finish('clarify',normalizedIntent.responseLanguage==='fr'?(invalid?'La date indiquée ne semble pas valide. Quelle date souhaites-tu ?':'Peux-tu préciser la date que tu souhaites ?'):(invalid?'That date does not seem valid. What date did you mean?':'Could you clarify which date you mean?'));
+      }
+    }
     const session=typeof model.createSession==='function'?model.createSession():model;
     const registeredTools=[...toolDefinitions];
-    if(weatherTool)registeredTools.push({name:'get_weather_forecast',description:'Get short-term NWS weather for an existing candidate and explicit travel dates; does not verify activity availability.',parameters:{type:'object',properties:{candidate_id:{type:'string'}},required:['candidate_id'],additionalProperties:false}});
+    if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible))registeredTools.push({name:'get_weather_forecast',description:'Get short-term NWS weather for an existing candidate and explicit travel dates; does not verify activity availability.',parameters:{type:'object',properties:{candidate_id:{type:'string'}},required:['candidate_id'],additionalProperties:false}});
     if(routeTool)registeredTools.push({name:'get_drive_estimate',description:'Estimate road travel between two known representative candidate areas; no live traffic or access verification.',parameters:{type:'object',properties:{from_candidate_id:{type:'string'},to_candidate_id:{type:'string'}},required:['from_candidate_id','to_candidate_id'],additionalProperties:false}});
     for(let i=0;i<maxSteps;i++){
       let action;
@@ -45,7 +61,7 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
         }else if(action.name==='check_evidence'&&Object.keys(args).length===1&&Array.isArray(args.candidate_ids)&&args.candidate_ids.length<=3&&args.candidate_ids.every(id=>available.has(id))){
           const rows=args.candidate_ids.map(id=>({id,requiredChecks:available.get(id).check,verified:false,sourceType:'illustrative fixture'}));rows.forEach(x=>checked.add(x.id));
           calls++;emit('tool',action.name);events.push({kind:'observation',name:action.name,data:rows});
-        }else if(weatherTool&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&state.preferences.startDate&&state.preferences.endDate){
+        }else if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible)&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&state.preferences.startDate&&state.preferences.endDate){
           const candidate=available.get(args.candidate_id);
           calls++;emit('tool',action.name);
           let data;

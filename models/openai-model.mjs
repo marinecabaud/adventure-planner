@@ -3,6 +3,14 @@ import {intentSchema,intentInstructions} from '../dist/intent.mjs';
 const endpoint='https://api.openai.com/v1/responses';
 class DecisionError extends Error {}
 const quotaCodes=new Set(['insufficient_quota','rate_limit_exceeded','slow_down','organization_spend_limit_exceeded','project_spend_limit_exceeded','organization_usage_limit_exceeded']);
+async function providerError(response){
+  let code='';
+  if(response.status===429){
+    try{const failure=await response.json();const observed=failure?.error?.code;if(quotaCodes.has(observed))code=' ('+observed+')';else if(failure?.error?.type==='insufficient_quota')code=' (insufficient_quota)';}catch{}
+  }
+  return Error('OpenAI HTTP '+response.status+code);
+}
+const safeProviderMessage=message=>typeof message==='string'&&/^OpenAI HTTP [0-9]{3}( \((insufficient_quota|rate_limit_exceeded|slow_down|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)\))?$/.test(message);
 export const defaultModel='gpt-5.4-mini';
 const finalTool={
   type:'function',name:'finish_plan',strict:true,
@@ -26,14 +34,14 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
   return {async extractIntent({query,preferences,referenceDate}){
     try{
       const response=await fetchFn(endpoint,{method:'POST',headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json'},signal:AbortSignal.timeout(45000),body:JSON.stringify({model,store:false,instructions:intentInstructions,input:JSON.stringify({query,preferences,referenceDate,timeZone:'America/Los_Angeles'}),text:{format:{type:'json_schema',name:'travel_intent',strict:true,schema:intentSchema}},max_output_tokens:2400})});
-      if(!response.ok)throw Error('OpenAI HTTP '+response.status);
+      if(!response.ok)throw await providerError(response);
       const data=await response.json();
       try{onUsage({input_tokens:data?.usage?.input_tokens,output_tokens:data?.usage?.output_tokens})}catch{}
       const text=data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text;
       if(data.status!=='completed'||typeof text!=='string')throw new DecisionError('Intent extraction incomplete');
       return JSON.parse(text);
     }catch(error){
-      const message=/^OpenAI HTTP [0-9]{3}$/.test(error?.message)?error.message:'OpenAI intent extraction failed.';
+      const message=safeProviderMessage(error?.message)?error.message:'OpenAI intent extraction failed.';
       try{onError(message)}catch{};throw Error(message);
     }
   },createSession(){
@@ -54,13 +62,7 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
         const response=await fetchFn(endpoint,{method:'POST',headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json'},signal:AbortSignal.timeout(45000),body:JSON.stringify({
           model,store:false,include:['reasoning.encrypted_content'],instructions:instructions+'\n'+guidance,input:history,tools,parallel_tool_calls:false,tool_choice:'required',max_output_tokens:2500
         })});
-        if(!response.ok){
-          let code='';
-          if(response.status===429){
-            try{const failure=await response.json();const observed=failure?.error?.code;if(quotaCodes.has(observed))code=' ('+observed+')';else if(failure?.error?.type==='insufficient_quota')code=' (insufficient_quota)';}catch{}
-          }
-          throw Error('OpenAI HTTP '+response.status+code);
-        }
+        if(!response.ok)throw await providerError(response);
         const data=await response.json();
         try{onUsage({input_tokens:data?.usage?.input_tokens,output_tokens:data?.usage?.output_tokens})}catch{}
         if(data?.status!=='completed'||!Array.isArray(data.output))throw new DecisionError('Model response incomplete');
@@ -81,7 +83,7 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
         return {type:'tool',name:call.name,args};
       }catch(error){
         // Never log credentials, request bodies or provider response bodies.
-        const message=typeof error?.message==='string'&&/^OpenAI HTTP [0-9]{3}( \((insufficient_quota|rate_limit_exceeded|slow_down|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)\))?$/.test(error.message)?error.message:error instanceof DecisionError?'OpenAI decision rejected: '+error.message:'OpenAI adapter could not produce a valid decision.';
+        const message=safeProviderMessage(error?.message)?error.message:error instanceof DecisionError?'OpenAI decision rejected: '+error.message:'OpenAI adapter could not produce a valid decision.';
         try{onError(message)}catch{}
         throw Error(message);
       }

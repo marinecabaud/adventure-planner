@@ -1,0 +1,9 @@
+# Intent evaluation protocol
+- `intent-v1.json`: initial reported failure and three counterexamples.
+- `intent-v2.json`: 20 test cases with a fixed reference date; 10 Intent Understanding and 10 Context & Assumptions.
+- `run-intent.mjs`: executes the unchanged harness and live model, using controlled unavailable weather/routing tools (do not interpret them as real evidence). A structured LLM judge grades observable behavior per expected criterion; separate deterministic checks compare available date/transfer tool arguments. Missing internal intent fields are explicitly not observed. No model or harness prompt is modified for the baseline.
+- `run-intent.test.mjs`: mock-only tests for runner and scoring. Run `node --test evals/run-intent.test.mjs`.
+- GitHub Actions: choose **Adventure Planner intent baseline → Run workflow**. Uses the existing `ADVENTURE_PLANNER` GitHub secret as `OPENAI_API_KEY`. The initial workflow introduction triggers a baseline on main. Later runs can be launched manually. Limit 1–20 cases; sequential runs; max 7 agent decisions + one judge per case. OpenAI API costs apply. The workflow has a 25-minute cap.
+- Results: GitHub Actions job summary and downloadable JSON artifact with per-case outputs, judgments, deterministic checks, duration and token counts. Compare judged pass rate *and* coverage; never count missing checks as passes. The LLM judge is provisional and needs human calibration. No full agent traces or prompts are transmitted to Langfuse by this CLI runner.
+- Run locally only with a securely configured API key: `node --env-file-if-exists=.env evals/run-intent.mjs`. The results directory is generated; don't commit secrets.
+- Known baseline limitation: the fixed reference clock is used by the grader, but the existing harness has no injectable date clock or structured intent output. Future intent extraction work should accept a test clock and expose normalized fields for deterministic grading.

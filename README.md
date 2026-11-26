@@ -14,3 +14,10 @@ Current adapter is deliberately deterministic, not an LLM. No real-world suitabi
 - Node 24+, run `npm ci` then `npm test`. Run `npm run weather:mcp -- YYYY-MM-DD YYYY-MM-DD` with dates within the next seven local calendar days to launch the live research demo. Longer-range requests return a horizon limitation; no forecast is fabricated.
 - No API credentials needed for NWS. Network access is needed for live calls. This is a server-side / CLI integration; the hosted UI still runs the previous browser demo and is not connected to the live weather data. Weather is not resort availability, route access, marine conditions or an activity safety assessment.
 - Official API: https://www.weather.gov/documentation/services-web-api ; MCP SDK: https://github.com/modelcontextprotocol/typescript-sdk
+
+## Routing integration V0.3 — direct API (no MCP)
+- `integrations/routing-api.mjs` calls OSRM's public demo read-only driving route endpoint directly. No API credentials; intended for a low-volume, non-commercial development demonstration, not production. The CLI makes one request per run; do not automate repeated calls (public demo policy: max one request per second). A production integration needs an appropriate provider or hosted OSRM.
+- The harness registers the optional `get_drive_estimate` tool, resolves known candidate IDs to representative area coordinates, validates duration/distance and compares duration against an explicit `maxTransferMinutes` preference. It reports `within_limit`, `exceeds_limit` or `unknown`; no route/provider failure never becomes a fabricated duration.
+- Run `npm run routing:demo -- 60` for a North Tahoe → Sierra foothills comparison. This is **area-to-area**, not precise sports locations; no live traffic, weather, closures, or access validation. It does not constitute a verified itinerary or automatically enforce all transfer constraints across the final recommendations yet.
+- Official API: https://project-osrm.org/docs/v5.24.0/api/ ; demo policy: https://github.com/Project-OSRM/osrm-backend/wiki/Demo-server
+- The hosted UI is unchanged; this integration is server-side / CLI only.

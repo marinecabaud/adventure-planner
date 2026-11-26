@@ -1,0 +1,40 @@
+name: Adventure Planner intent baseline
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Number of dataset cases (1–20)
+        required: true
+        default: '20'
+        type: string
+  push:
+    branches: [main]
+    paths: ['.github/workflows/intent-baseline.yml']
+permissions:
+  contents: read
+concurrency:
+  group: adventure-planner-intent-baseline
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify eval runner (mocked, no network)
+        run: node --test evals/run-intent.test.mjs
+      - name: Run intent baseline (real LLM, controlled tools)
+        env:
+          OPENAI_API_KEY: ${{ secrets.ADVENTURE_PLANNER }}
+          EVAL_LIMIT: ${{ inputs.limit || '20' }}
+        run: node evals/run-intent.mjs
+      - name: Save detailed baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intent-baseline
+          path: evals/results/intent-baseline.json
+          if-no-files-found: warn

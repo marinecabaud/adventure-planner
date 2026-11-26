@@ -82,3 +82,15 @@ test('429 errors report only allowlisted error codes, never provider messages',a
     assert.equal(r.status,'insufficient');assert.deepEqual(messages,[expected]);
   }
 });
+
+test('non-results final action discards candidate IDs rather than aborting a grounded limitation response',async()=>{
+  const fake=fakeResponses([['find_candidates',{scenario:'tahoe'}],final('insufficient','The itinerary is not yet verified.',['tahoe-0'])]);
+  const r=await build(fake).run({query:'Tahoe'});
+  assert.equal(r.status,'insufficient');assert.equal(r.message,'The itinerary is not yet verified.');assert.equal(r.candidates.length,0);assert.ok(!r.trace.some(x=>x.type==='error'));
+});
+test('safe decision diagnostics distinguish malformed final response from provider errors',async()=>{
+  const messages=[];
+  const fake=fakeResponses([final('results','',['tahoe-0'])]);
+  const r=await build({...fake,onError:m=>messages.push(m)}).run({query:'Tahoe'});
+  assert.equal(r.status,'insufficient');assert.deepEqual(messages,['OpenAI decision rejected: Invalid final action']);
+});

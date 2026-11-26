@@ -1,5 +1,6 @@
 /** Server-only Responses API adapter. The harness owns tool execution and limits. */
 const endpoint='https://api.openai.com/v1/responses';
+const quotaCodes=new Set(['insufficient_quota','rate_limit_exceeded','slow_down','organization_spend_limit_exceeded','project_spend_limit_exceeded','organization_usage_limit_exceeded']);
 export const defaultModel='gpt-5.4-mini';
 const finalTool={
   type:'function',name:'finish_plan',strict:true,
@@ -38,7 +39,13 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
         const response=await fetchFn(endpoint,{method:'POST',headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json'},signal:AbortSignal.timeout(45000),body:JSON.stringify({
           model,store:false,include:['reasoning.encrypted_content'],instructions:instructions+'\n'+guidance,input:history,tools,parallel_tool_calls:false,tool_choice:'required',max_output_tokens:2500
         })});
-        if(!response.ok)throw Error('OpenAI HTTP '+response.status);
+        if(!response.ok){
+          let code='';
+          if(response.status===429){
+            try{const failure=await response.json();const observed=failure?.error?.code;if(quotaCodes.has(observed))code=' ('+observed+')';else if(failure?.error?.type==='insufficient_quota')code=' (insufficient_quota)';}catch{}
+          }
+          throw Error('OpenAI HTTP '+response.status+code);
+        }
         const data=await response.json();
         if(data?.status!=='completed'||!Array.isArray(data.output))throw Error('Model response incomplete');
         const calls=data.output.filter(item=>item.type==='function_call');
@@ -58,7 +65,7 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
         return {type:'tool',name:call.name,args};
       }catch(error){
         // Never log credentials, request bodies or provider response bodies.
-        const message=typeof error?.message==='string'&&/^OpenAI HTTP [0-9]{3}$/.test(error.message)?error.message:'OpenAI adapter could not produce a valid decision.';
+        const message=typeof error?.message==='string'&&/^OpenAI HTTP [0-9]{3}( \((insufficient_quota|rate_limit_exceeded|slow_down|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)\))?$/.test(error.message)?error.message:'OpenAI adapter could not produce a valid decision.';
         try{onError(message)}catch{}
         throw Error(message);
       }

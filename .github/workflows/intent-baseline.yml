@@ -24,8 +24,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
-      - name: Verify eval runner (mocked, no network)
-        run: node --test evals/run-intent.test.mjs
+      - name: Install repository dependencies
+        run: npm ci
+      - name: Existing repository tests
+        run: npm test
+      - name: Verify intent normalization and eval runner (mocked, no network)
+        run: node --test evals/*.test.mjs
       - name: Run intent baseline (real LLM, controlled tools)
         env:
           OPENAI_API_KEY: ${{ secrets.ADVENTURE_PLANNER }}

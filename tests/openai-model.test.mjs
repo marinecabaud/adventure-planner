@@ -74,3 +74,11 @@ test('weather call without explicit travel dates is rejected by harness',async()
   const r=await build({...fake,weatherTool:()=>assert.fail('must not call')}).run({query:'weather in Tahoe'});
   assert.equal(r.status,'insufficient');assert.equal(r.metrics.toolCalls,1);
 });
+
+test('429 errors report only allowlisted error codes, never provider messages',async()=>{
+  for(const [code,expected] of [['insufficient_quota','OpenAI HTTP 429 (insufficient_quota)'],['project_spend_limit_exceeded','OpenAI HTTP 429 (project_spend_limit_exceeded)'],['anything-sensitive','OpenAI HTTP 429']]){
+    const messages=[];
+    const r=await build({fetchFn:async()=>({ok:false,status:429,json:async()=>({error:{code,message:'SECRET: never print'}})}),onError:m=>messages.push(m)}).run({query:'trip'});
+    assert.equal(r.status,'insufficient');assert.deepEqual(messages,[expected]);
+  }
+});

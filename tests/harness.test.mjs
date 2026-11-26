@@ -1,0 +1,21 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createHarness,demoModel} from '../dist/harness.mjs';
+import {fixtures} from '../dist/fixtures.mjs';
+const h=createHarness({model:demoModel,fixtures});
+test('Tahoe: bounded tool loop, grounded fixture output',async()=>{
+ const r=await h.run({query:'Ski and trail run in Tahoe over Thanksgiving',preferences:{skill:'beginner'}});
+ assert.equal(r.status,'results');assert.equal(r.candidates.length,3);assert.equal(r.metrics.toolCalls,2);
+ assert.equal(r.evidenceMode,'fixture');assert.ok(r.candidates.every(x=>x.geography==='California'));
+});
+test('spring kitesurf scenario',async()=>assert.equal((await h.run({query:'Kitesurf in spring'})).candidates.length,3));
+test('destination discovery',async()=>assert.equal((await h.run({query:'Santa Cruz next month'})).status,'results'));
+test('out-of-scope Hawaii',async()=>assert.equal((await h.run({query:'Kitesurf in Hawaii'})).status,'unsupported'));
+test('ambiguous request',async()=>assert.equal((await h.run({query:'I need a vacation'})).status,'clarify'));
+test('unsupported sport and month returns no candidates',async()=>assert.equal((await h.run({query:'Ski in August'})).candidates.length,0));
+test('unknown tool is rejected',async()=>{const r=await createHarness({fixtures,model:{next:async()=>({type:'tool',name:'book_trip',args:{}})}}).run({query:'trip'});assert.equal(r.status,'insufficient');assert.equal(r.metrics.toolCalls,0)});
+test('fabricated candidate is rejected',async()=>{const r=await createHarness({fixtures,model:{next:async()=>({type:'final',status:'results',message:'Try this',candidate_ids:['fake']})}}).run({query:'trip'});assert.equal(r.candidates.length,0)});
+test('loop stops at tool budget',async()=>{const model={next:async()=>({type:'tool',name:'find_candidates',args:{scenario:'tahoe'}})};const r=await createHarness({fixtures,model,maxCalls:2}).run({query:'trip'});assert.equal(r.status,'insufficient');assert.equal(r.metrics.toolCalls,2)});
+test('model failure is handled',async()=>{const r=await createHarness({fixtures,model:{next:async()=>{throw Error('failure')}}}).run({query:'trip'});assert.equal(r.status,'insufficient')});
+test('candidate not evidence-checked is rejected',async()=>{let n=0;const model={next:async()=>++n===1?{type:'tool',name:'find_candidates',args:{scenario:'tahoe'}}:{type:'final',status:'results',message:'Try this',candidate_ids:['tahoe-0']}};assert.equal((await createHarness({model,fixtures}).run({query:'trip'})).candidates.length,0)});
+test('step budget enforced',async()=>{const r=await createHarness({fixtures,model:{next:async()=>({type:'tool',name:'find_candidates',args:{scenario:'tahoe'}})},maxSteps:1}).run({query:'trip'});assert.equal(r.status,'insufficient');assert.ok(r.trace.some(x=>x.type==='limit'))});

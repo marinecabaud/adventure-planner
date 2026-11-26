@@ -1,0 +1,106 @@
+{
+  "dataset": "adventure-planner-intent-v1",
+  "version": 1,
+  "description": "Failure-driven intent and clarification regression cases. Fixed reference clock ensures repeatable year and relative-date checks; this is a specification, not an executed live experiment.",
+  "referenceTime": "2026-11-26T12:00:00-08:00",
+  "timeZone": "America/Los_Angeles",
+  "productRules": [
+    "For a month/day without a year, infer the current local calendar year when the requested dates are upcoming; do not ask again. If the dates are past or genuinely ambiguous, clarify or disclose the chosen interpretation rather than silently assuming.",
+    "Normalize unambiguous natural-language dates internally to YYYY-MM-DD startDate and endDate. Do not require the user to reformat them.",
+    "When skill is unspecified, use Intermediate as an explicitly disclosed provisional planning assumption; respect any user-provided skill. This is not verification of safety, eligibility, or suitability.",
+    "Proceed with available research rather than blocking on these nonessential clarifications. Still clarify genuinely missing constraints and report unavailable or unverified evidence."
+  ],
+  "cases": [
+    {
+      "id": "INT-001",
+      "source": "observed user-reported failure",
+      "inputProvenance": "Reconstructed from the user's reported response and explanation; replace with verbatim request if recovered.",
+      "input": {
+        "query": "I want to ski in Tahoe on November 27 and 28.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true,
+        "askForYear": false,
+        "askForSkill": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true
+      },
+      "observed": {
+        "response": "I can help with Tahoe ski planning for Friday Nov 27 and Saturday Nov 28, but I’m missing the exact year and your skill level. If you want weather-based guidance, I also need your startDate/endDate in a concrete format. Reply with the year and whether you’re beginner, intermediate, or advanced, and I’ll narrow it down.",
+        "assessment": {
+          "yearInference": "fail",
+          "skillDefaultDisclosure": "fail",
+          "dateNormalizationWithoutAsking": "fail",
+          "structuredExtraction": "not_observed"
+        },
+        "baseline": "Manual user-visible assessment: 0/3; no automated or live rerun performed."
+      }
+    },
+    {
+      "id": "INT-002",
+      "source": "synthetic guardrail regression",
+      "input": {
+        "query": "I am a beginner and want to ski in Tahoe on November 27 and 28.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skill": "Beginner",
+        "skillSource": "explicit",
+        "discloseSkillAssumption": false,
+        "askForYear": false,
+        "askForSkill": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-003",
+      "source": "synthetic explicit-year regression",
+      "input": {
+        "query": "Plan a ski trip to Tahoe on November 27 and 28, 2027.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2027-11-27",
+        "endDate": "2027-11-28",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true,
+        "askForYear": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true,
+        "forecastHorizon": "Do not invent a forecast for distant dates."
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-004",
+      "source": "synthetic ambiguity guardrail",
+      "input": {
+        "query": "I want to ski in Tahoe on November 1 and 2.",
+        "preferences": {}
+      },
+      "expected": {
+        "dateAmbiguity": "Past dates relative to fixed current date; ask whether the user means next year or clearly explain an assumption. Do not silently book or claim forecast availability.",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true
+      },
+      "observed": null
+    }
+  ],
+  "scoring": {
+    "intentNormalization": "Exact match against structured startDate/endDate when the intent extraction output is instrumented.",
+    "skillDefault": "Check exact value and explicit-vs-default source; assess whether the user-visible response disclosed an assumed skill.",
+    "clarificationQuality": "Manual or rubric grader: no redundant questions about inferable year, defaultable skill, or format; permit meaningful clarifications.",
+    "researchProgress": "Trace check: relevant tools attempted when available; report honest limitations; not required to fabricate candidates or weather."
+  }
+}

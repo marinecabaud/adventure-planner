@@ -3,6 +3,7 @@ import {fixtures} from '../dist/fixtures.mjs';
 import {createOpenAIModel,defaultModel} from '../models/openai-model.mjs';
 import {getWeatherForecast} from '../integrations/weather-api.mjs';
 import {getDriveEstimate} from '../integrations/routing-api.mjs';
+import {createLangfuseTrace} from '../integrations/langfuse-telemetry.mjs';
 
 // Worker-compatible adapters. The GitHub CLI keeps its stdio MCP client;
 // Workers cannot spawn a child process, so this route calls the same NOAA adapter directly.
@@ -10,8 +11,8 @@ const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers});
 const validISO=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&!Number.isNaN(Date.parse(s))&&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
 const str=(s,max)=>typeof s==='string'?s.trim().slice(0,max):'';
-export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getWeatherForecast,routeTool=getDriveEstimate}={}){
-  return {async fetch(request,env){
+export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getWeatherForecast,routeTool=getDriveEstimate,telemetryFactory=createLangfuseTrace}={}){
+  return {async fetch(request,env,ctx){
     const url=new URL(request.url);
     if(url.pathname==='/'&&request.method==='GET')return new Response(html,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
     if(url.pathname!=='/api/plan')return json({error:'Not found'},404);
@@ -30,13 +31,21 @@ export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getW
     if((preferences.startDate||preferences.endDate)&&(!validISO(preferences.startDate)||!validISO(preferences.endDate)||preferences.endDate<preferences.startDate))return json({error:'Choose a valid start and end date.'},400);
     if(preferences.maxTransferMinutes!==null&&(!Number.isFinite(preferences.maxTransferMinutes)||preferences.maxTransferMinutes<1||preferences.maxTransferMinutes>1440))return json({error:'Enter a transfer limit between 1 and 1440 minutes.'},400);
     if(!env.OPENAI_API_KEY)return json({error:'The server API key is not configured.'},503);
+    const telemetry=telemetryFactory(env);
+    const inputMetadata={queryLength:query.length,hasDates:!!(preferences.startDate&&preferences.endDate),hasSkill:!!preferences.skill,hasOrigin:!!preferences.origin,hasTransferLimit:preferences.maxTransferMinutes!==null};
     let modelError='';
+    async function finish(payload,status=200,errorCode){
+      telemetry.finish({httpStatus:status,result:payload,inputMetadata,errorCode});
+      const exporting=telemetry.export();
+      if(ctx?.waitUntil)ctx.waitUntil(exporting);else await exporting;
+      return json({...payload,traceId:telemetry.traceId},status);
+    }
     try{
-      const model=modelFactory({apiKey:env.OPENAI_API_KEY,model:env.OPENAI_MODEL||defaultModel,onError:message=>{modelError=message}});
-      const result=await createHarness({model,fixtures,weatherTool,routeTool,maxSteps:7,maxCalls:6}).run({query,preferences});
-      if(modelError)return json({error:'The live model could not complete the request. '+modelError},502);
-      return json({...result,model:env.OPENAI_MODEL||defaultModel,weatherTransport:'direct HTTP (NOAA)',limitations:['Candidate inventory is illustrative, not verified.','Exact activity locations, opening status, safety and road access are not verified.','Routing is a public demo estimate, not live traffic.']});
-    }catch{return json({error:'The live agent is temporarily unavailable.'},502)}
+      const model=modelFactory({apiKey:env.OPENAI_API_KEY,model:env.OPENAI_MODEL||defaultModel,onError:message=>{modelError=message},onUsage:value=>telemetry.onUsage(value)});
+      const result=await createHarness({model:telemetry.wrapModel(model,env.OPENAI_MODEL||defaultModel),fixtures,weatherTool,routeTool,maxSteps:7,maxCalls:6,onTrace:event=>telemetry.onTrace(event)}).run({query,preferences});
+      if(modelError)return finish({error:'The live model could not complete the request. '+modelError},502,'model_error');
+      return finish({...result,model:env.OPENAI_MODEL||defaultModel,weatherTransport:'direct HTTP (NOAA)',limitations:['Candidate inventory is illustrative, not verified.','Exact activity locations, opening status, safety and road access are not verified.','Routing is a public demo estimate, not live traffic.']});
+    }catch{return finish({error:'The live agent is temporarily unavailable.'},502,'agent_error')}
   }};
 }
 export default makeWorker(typeof SITE_HTML==='string'?SITE_HTML:'');

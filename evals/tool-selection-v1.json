@@ -1,0 +1,321 @@
+{
+  "dataset": "adventure-planner-tool-selection-v1",
+  "referenceTime": "2026-11-26T12:00:00-08:00",
+  "timeZone": "America/Los_Angeles",
+  "notes": "Required/forbidden tests score currently registered tools, not actual recommendations. missingCapabilities are product gaps and are never included as model failures. Unrelated fixture scenarios are invalid even if a find call occurs. All tools controlled.",
+  "cases": [
+    {
+      "id": "TOOL-001",
+      "input": {
+        "query": "I want to ski in Tahoe on November 27 and 28.",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast"
+      ],
+      "forbidden": [
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "tahoe"
+      ],
+      "missingCapabilities": [
+        "resort_openings",
+        "snow_conditions"
+      ],
+      "why": "Short-term weather is relevant, but forecast alone cannot verify skiing."
+    },
+    {
+      "id": "TOOL-002",
+      "input": {
+        "query": "I want to run at SeaRanch next week",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [
+        "destination_discovery",
+        "trail_access"
+      ],
+      "why": "The demo inventory has no Sea Ranch; next week exceeds the whole-window forecast horizon."
+    },
+    {
+      "id": "TOOL-003",
+      "input": {
+        "query": "Where in California can I kitesurf in spring?",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence"
+      ],
+      "forbidden": [
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "kite"
+      ],
+      "missingCapabilities": [
+        "seasonal_wind",
+        "launch_access"
+      ],
+      "why": "Seasonal discovery is not a specific near-term forecast."
+    },
+    {
+      "id": "TOOL-004",
+      "input": {
+        "query": "I want to run at SeaRanch",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [
+        "destination_discovery",
+        "trail_access"
+      ],
+      "why": "Missing inventory, not unsupported California geography."
+    },
+    {
+      "id": "TOOL-005",
+      "input": {
+        "query": "I want to ski and trail run around Tahoe November 27\u201328, with at most 60 minutes driving between activities.",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "forbidden": [],
+      "allowedFixtureScenarios": [
+        "tahoe"
+      ],
+      "missingCapabilities": [
+        "resort_openings",
+        "trail_access",
+        "exact_activity_routing"
+      ],
+      "why": "Representative-area routing can only be provisional."
+    },
+    {
+      "id": "TOOL-006",
+      "input": {
+        "query": "Plan mountain biking in Santa Cruz tomorrow.",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast"
+      ],
+      "forbidden": [
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "santa"
+      ],
+      "missingCapabilities": [
+        "trail_access"
+      ],
+      "why": "Near-term weather plus activity access; no route limit."
+    },
+    {
+      "id": "TOOL-007",
+      "input": {
+        "query": "I want to surf Santa Cruz next July.",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence"
+      ],
+      "forbidden": [
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "santa"
+      ],
+      "missingCapabilities": [
+        "seasonal_swell",
+        "surf_access"
+      ],
+      "why": "Long-range seasonal planning; do not call an invented forecast."
+    },
+    {
+      "id": "TOOL-008",
+      "input": {
+        "query": "Plan a ski trip to Tahoe on Nov 27\u201328, 2027.",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence"
+      ],
+      "forbidden": [
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "tahoe"
+      ],
+      "missingCapabilities": [
+        "seasonal_snow",
+        "resort_openings"
+      ],
+      "why": "A year away; no short-term forecast."
+    },
+    {
+      "id": "TOOL-009",
+      "input": {
+        "query": "I want to snowboard tomorrow in Colorado.",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [],
+      "why": "Outside California; reject without external tools."
+    },
+    {
+      "id": "TOOL-010",
+      "input": {
+        "query": "I want to ski in Tahoe on February 30.",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [],
+      "why": "Invalid date must be clarified before tool calls."
+    },
+    {
+      "id": "TOOL-011",
+      "input": {
+        "query": "Find a hiking spot in California within two hours of San Francisco.",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "get_drive_estimate",
+        "get_weather_forecast"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [
+        "destination_discovery",
+        "origin_to_destination_routing",
+        "trail_access"
+      ],
+      "why": "Do not misuse inter-candidate routing as origin routing. No matching California-wide fixture query."
+    },
+    {
+      "id": "TOOL-012",
+      "input": {
+        "query": "Where can I kitesurf in California tomorrow?",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast"
+      ],
+      "forbidden": [
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "kite"
+      ],
+      "missingCapabilities": [
+        "marine_wind",
+        "launch_access"
+      ],
+      "why": "Point weather is relevant but insufficient for marine conditions."
+    },
+    {
+      "id": "TOOL-013",
+      "input": {
+        "query": "I want a hike and a bike ride near Santa Cruz Saturday and Sunday.",
+        "preferences": {}
+      },
+      "required": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast"
+      ],
+      "forbidden": [
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [
+        "santa"
+      ],
+      "missingCapabilities": [
+        "trail_access",
+        "cycling_route_access"
+      ],
+      "why": "Biking ambiguity can be handled with options, and forecast is relevant."
+    },
+    {
+      "id": "TOOL-014",
+      "input": {
+        "query": "I want to ski in Tahoe on 12/05.",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [],
+      "why": "Ambiguous numeric date: ask clarification before research."
+    },
+    {
+      "id": "TOOL-015",
+      "input": {
+        "query": "Find a cycling route in Joshua Tree next month.",
+        "preferences": {}
+      },
+      "required": [],
+      "forbidden": [
+        "find_candidates",
+        "check_evidence",
+        "get_weather_forecast",
+        "get_drive_estimate"
+      ],
+      "allowedFixtureScenarios": [],
+      "missingCapabilities": [
+        "destination_discovery",
+        "cycling_route_access"
+      ],
+      "why": "No Joshua Tree fixture; long-range request."
+    }
+  ]
+}

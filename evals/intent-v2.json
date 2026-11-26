@@ -1,0 +1,436 @@
+{
+  "dataset": "adventure-planner-intent-v2",
+  "version": 2,
+  "description": "20 initial evaluation scenarios: 10 intent understanding, 10 context and assumptions. Fixed clock for date reproducibility. Observed user failures and synthetic counterexamples are kept separate. Not a live experiment.",
+  "referenceTime": "2026-11-26T12:00:00-08:00",
+  "timeZone": "America/Los_Angeles",
+  "productRules": [
+    "For a month/day without a year, infer the current local calendar year when the requested dates are upcoming; do not ask again. If the dates are past or genuinely ambiguous, clarify or disclose the chosen interpretation rather than silently assuming.",
+    "Normalize unambiguous natural-language dates internally to YYYY-MM-DD startDate and endDate. Do not require the user to reformat them.",
+    "When skill is unspecified, use Intermediate as an explicitly disclosed provisional planning assumption; respect any user-provided skill. This is not verification of safety, eligibility, or suitability.",
+    "Proceed with available research rather than blocking on these nonessential clarifications. Still clarify genuinely missing constraints and report unavailable or unverified evidence.",
+    "Proposed evaluation convention: interpret next week as the next Monday–Sunday calendar week in America/Los_Angeles; interpret named weekdays as upcoming weekdays when unambiguous. Explicit dates, sport levels and geographic scope take priority over defaults. Relative dates use a fixed test clock."
+  ],
+  "cases": [
+    {
+      "id": "INT-001",
+      "source": "observed user-reported failure",
+      "inputProvenance": "Reconstructed from the user's reported response and explanation; replace with verbatim request if recovered.",
+      "input": {
+        "query": "I want to ski in Tahoe on November 27 and 28.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true,
+        "askForYear": false,
+        "askForSkill": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true
+      },
+      "observed": {
+        "response": "I can help with Tahoe ski planning for Friday Nov 27 and Saturday Nov 28, but I’m missing the exact year and your skill level. If you want weather-based guidance, I also need your startDate/endDate in a concrete format. Reply with the year and whether you’re beginner, intermediate, or advanced, and I’ll narrow it down.",
+        "assessment": {
+          "yearInference": "fail",
+          "skillDefaultDisclosure": "fail",
+          "dateNormalizationWithoutAsking": "fail",
+          "structuredExtraction": "not_observed"
+        },
+        "baseline": "Manual user-visible assessment: 0/3; no automated or live rerun performed."
+      },
+      "category": "context_assumptions"
+    },
+    {
+      "id": "INT-002",
+      "source": "synthetic guardrail regression",
+      "input": {
+        "query": "I am a beginner and want to ski in Tahoe on November 27 and 28.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skill": "Beginner",
+        "skillSource": "explicit",
+        "discloseSkillAssumption": false,
+        "askForYear": false,
+        "askForSkill": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true
+      },
+      "observed": null,
+      "category": "context_assumptions"
+    },
+    {
+      "id": "INT-003",
+      "source": "synthetic explicit-year regression",
+      "input": {
+        "query": "Plan a ski trip to Tahoe on November 27 and 28, 2027.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2027-11-27",
+        "endDate": "2027-11-28",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true,
+        "askForYear": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true,
+        "forecastHorizon": "Do not invent a forecast for distant dates."
+      },
+      "observed": null,
+      "category": "context_assumptions"
+    },
+    {
+      "id": "INT-004",
+      "source": "synthetic ambiguity guardrail",
+      "input": {
+        "query": "I want to ski in Tahoe on November 1 and 2.",
+        "preferences": {}
+      },
+      "expected": {
+        "dateAmbiguity": "Past dates relative to fixed current date; ask whether the user means next year or clearly explain an assumption. Do not silently book or claim forecast availability.",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true
+      },
+      "observed": null,
+      "category": "context_assumptions"
+    },
+    {
+      "id": "INT-005",
+      "category": "intent_understanding",
+      "source": "observed user-reported failure",
+      "input": {
+        "query": "I want to run at SeaRanch",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Sea Ranch",
+        "sports": [
+          "Trail running or running"
+        ],
+        "dateIntent": "unspecified",
+        "doNotInventDates": true,
+        "proceedWithResearch": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-006",
+      "category": "intent_understanding",
+      "source": "observed user-reported failure",
+      "input": {
+        "query": "I want to run at SeaRanch next week",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Sea Ranch",
+        "sports": [
+          "Trail running or running"
+        ],
+        "dateIntent": "next calendar week",
+        "startDate": "2026-11-30",
+        "endDate": "2026-12-06",
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-007",
+      "category": "intent_understanding",
+      "source": "observed user-reported failure",
+      "input": {
+        "query": "Where in California can I kitesurf in spring?",
+        "preferences": {}
+      },
+      "expected": {
+        "destinationScope": "California",
+        "sports": [
+          "Kitesurf"
+        ],
+        "dateIntent": "spring, seasonal discovery",
+        "requiresExactDates": false,
+        "askForDateFormat": false,
+        "requiredEvidence": "seasonal data, not a short-term forecast"
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-008",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want to ski and trail run around Tahoe on Nov 27–28 with no more than an hour driving between activities.",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Tahoe",
+        "sports": [
+          "Ski / snowboard",
+          "Trail running"
+        ],
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "maxTransferMinutes": 60,
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-009",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "Plan a mountain biking trip to Santa Cruz tomorrow.",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Santa Cruz",
+        "sports": [
+          "Mountain biking"
+        ],
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-27",
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-010",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "Je voudrais surfer et faire du vélo à Santa Cruz les 28 et 29 novembre.",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Santa Cruz",
+        "sports": [
+          "Surf",
+          "Cycling"
+        ],
+        "startDate": "2026-11-28",
+        "endDate": "2026-11-29",
+        "responseLanguage": "fr",
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-011",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I'm going to Tahoe December 31 through January 2 for skiing.",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Tahoe",
+        "sports": [
+          "Ski / snowboard"
+        ],
+        "startDate": "2026-12-31",
+        "endDate": "2027-01-02",
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-012",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "Find me a hiking spot in California within a two-hour drive from San Francisco.",
+        "preferences": {}
+      },
+      "expected": {
+        "destinationScope": "California",
+        "sports": [
+          "Hiking"
+        ],
+        "origin": "San Francisco",
+        "maxOriginDriveMinutes": 120,
+        "doNotConfuseWithInterActivityTransfer": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-013",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want to snowboard tomorrow in Colorado.",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Colorado",
+        "sports": [
+          "Ski / snowboard"
+        ],
+        "scope": "unsupported",
+        "doNotSilentlySubstituteCalifornia": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-014",
+      "category": "intent_understanding",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want a hike and a bike ride near Santa Cruz, Saturday and Sunday.",
+        "preferences": {}
+      },
+      "expected": {
+        "destination": "Santa Cruz",
+        "sports": [
+          "Hiking",
+          "Cycling or Mountain biking"
+        ],
+        "startDate": "2026-11-28",
+        "endDate": "2026-11-29",
+        "askMeaningfulClarificationIfNeeded": "Road cycling vs mountain biking; can present both without blocking."
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-015",
+      "category": "context_assumptions",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want to ski Tahoe Nov 27–28.",
+        "preferences": {
+          "skill": "Advanced"
+        }
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skill": "Advanced",
+        "skillSource": "explicit preference",
+        "discloseSkillAssumption": false,
+        "askForSkill": false,
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-016",
+      "category": "context_assumptions",
+      "source": "synthetic regression",
+      "input": {
+        "query": "We're beginners at skiing but advanced trail runners. Plan Tahoe on Nov 27 and 28.",
+        "preferences": {}
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skillBySport": {
+          "Ski / snowboard": "Beginner",
+          "Trail running": "Advanced"
+        },
+        "skillSource": "explicit",
+        "askForSkill": false,
+        "discloseSkillAssumption": false,
+        "askForDateFormat": false,
+        "askForYear": false
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-017",
+      "category": "context_assumptions",
+      "source": "synthetic regression",
+      "input": {
+        "query": "Where should I learn to kitesurf in spring in California? I'm a total beginner.",
+        "preferences": {}
+      },
+      "expected": {
+        "sports": [
+          "Kitesurf"
+        ],
+        "skill": "Beginner",
+        "skillSource": "explicit",
+        "askForSkill": false,
+        "requiresExactDates": false,
+        "doNotGuaranteeSafety": true,
+        "proceedWithResearch": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-018",
+      "category": "context_assumptions",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want to ski in Tahoe on February 30.",
+        "preferences": {}
+      },
+      "expected": {
+        "dateValidity": "invalid",
+        "askMeaningfulClarification": true,
+        "doNotInventValidDate": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-019",
+      "category": "context_assumptions",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want to ski in Tahoe on 12/05.",
+        "preferences": {}
+      },
+      "expected": {
+        "dateAmbiguity": "US December 5 vs international May 12; clarify or explicitly disclose locale interpretation.",
+        "doNotSilentlyAssume": true,
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true
+      },
+      "observed": null
+    },
+    {
+      "id": "INT-020",
+      "category": "context_assumptions",
+      "source": "synthetic regression",
+      "input": {
+        "query": "I want to ski in Tahoe Nov 27–28.",
+        "preferences": {
+          "skill": ""
+        }
+      },
+      "expected": {
+        "startDate": "2026-11-27",
+        "endDate": "2026-11-28",
+        "skill": "Intermediate",
+        "skillSource": "default",
+        "discloseSkillAssumption": true,
+        "askForSkill": false,
+        "askForYear": false,
+        "askForDateFormat": false,
+        "proceedWithResearch": true
+      },
+      "observed": null
+    }
+  ],
+  "scoring": {
+    "intentNormalization": "Exact match against structured startDate/endDate when the intent extraction output is instrumented.",
+    "skillDefault": "Check exact value and explicit-vs-default source; assess whether the user-visible response disclosed an assumed skill.",
+    "clarificationQuality": "Manual or rubric grader: no redundant questions about inferable year, defaultable skill, or format; permit meaningful clarifications.",
+    "researchProgress": "Trace check: relevant tools attempted when available; report honest limitations; not required to fabricate candidates or weather.",
+    "scope": "Check destination and sport extraction independently of whether candidate inventory can return live results.",
+    "unknown": "Where no structured output or trace evidence exists, mark not_observed, never invent a pass/fail."
+  },
+  "notes": "New date conventions are proposed defaults for repeatable evals; no implementation change. INT-001 input reconstructed; INT-005/006/007 are verbatim user-reported queries, with failure reported but no exact response recorded. Current live agent may not support these destinations or tool capabilities. Other cases are synthetic and remain unrun."
+}

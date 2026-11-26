@@ -22,11 +22,11 @@ jobs:
       - run: npm test
       - name: Run one live agent scenario
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.ADVENTURE_PLANNER }}
         run: |
           set -euo pipefail
           if [ -z "$OPENAI_API_KEY" ]; then
-            echo "Add the OPENAI_API_KEY repository secret before running."
+            echo "Add OPENAI_API_KEY or ADVENTURE_PLANNER as a repository secret before running."
             exit 1
           fi
           PREFS=$(node -e 'const format = offset => new Intl.DateTimeFormat("en-CA",{timeZone:"America/Los_Angeles",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(Date.now()+offset*86400000)); console.log(JSON.stringify({startDate:format(1),endDate:format(2),maxTransferMinutes:60}))')

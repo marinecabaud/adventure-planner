@@ -1,0 +1,33 @@
+name: Adventure Planner tool selection baseline
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tool-selection.yml']
+permissions:
+  contents: read
+concurrency:
+  group: adventure-planner-tool-selection
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify tool selection scorer
+        run: node --test evals/tool-selection.test.mjs
+      - name: Run 15 tool selection scenarios
+        env:
+          OPENAI_API_KEY: ${{ secrets.ADVENTURE_PLANNER }}
+        run: node evals/run-tool-selection.mjs
+      - name: Save detailed tool selection report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-selection-baseline
+          path: evals/results/tool-selection-baseline.json
+          if-no-files-found: warn

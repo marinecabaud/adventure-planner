@@ -11,7 +11,7 @@ const outcomes=new Set(['results','clarify','unsupported','insufficient']);
 const sports=['ski / snowboard','kitesurf','hiking','mountain biking','surf','trail running','cycling'];
 const clean=s=>typeof s==='string'?s.trim():'';
 export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null}){
-  if(!model?.next)throw new Error('Model adapter must implement next(context)');
+  if(typeof model?.next!=='function'&&typeof model?.createSession!=='function')throw new Error('Model adapter must implement next(context) or createSession()');
   return {async run(request){
     const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];let routeEvidence=[];
     const emit=(type,detail)=>trace.push({step:trace.length+1,type,detail});
@@ -22,12 +22,13 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
     if(!clean(request?.query))return finish('clarify','Tell me which sports, dates or destination you have in mind.');
     const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin),startDate:clean(request.preferences?.startDate),endDate:clean(request.preferences?.endDate),maxTransferMinutes:Number.isFinite(request.preferences?.maxTransferMinutes)&&request.preferences.maxTransferMinutes>0?request.preferences.maxTransferMinutes:null}};
     emit('request','User intent received');
+    const session=typeof model.createSession==='function'?model.createSession():model;
     const registeredTools=[...toolDefinitions];
     if(weatherTool)registeredTools.push({name:'get_weather_forecast',description:'Get short-term NWS weather for an existing candidate and explicit travel dates; does not verify activity availability.',parameters:{type:'object',properties:{candidate_id:{type:'string'}},required:['candidate_id'],additionalProperties:false}});
     if(routeTool)registeredTools.push({name:'get_drive_estimate',description:'Estimate road travel between two known representative candidate areas; no live traffic or access verification.',parameters:{type:'object',properties:{from_candidate_id:{type:'string'},to_candidate_id:{type:'string'}},required:['from_candidate_id','to_candidate_id'],additionalProperties:false}});
     for(let i=0;i<maxSteps;i++){
       let action;
-      try{action=await model.next({instructions,toolDefinitions:registeredTools,state:structuredClone(state),events:structuredClone(events)});}
+      try{action=await session.next({instructions,toolDefinitions:registeredTools,state:structuredClone(state),events:structuredClone(events)});}
       catch(e){emit('error','Model adapter failed');return finish('insufficient','The agent could not complete this request.');}
       events.push({kind:'decision',action});
       if(!action||typeof action!=='object'){emit('reject','Invalid action');return finish('insufficient','The agent returned an invalid action.');}

@@ -1,5 +1,6 @@
 /** Server-only Responses API adapter. The harness owns tool execution and limits. */
 const endpoint='https://api.openai.com/v1/responses';
+class DecisionError extends Error {}
 const quotaCodes=new Set(['insufficient_quota','rate_limit_exceeded','slow_down','organization_spend_limit_exceeded','project_spend_limit_exceeded','organization_usage_limit_exceeded']);
 export const defaultModel='gpt-5.4-mini';
 const finalTool={
@@ -8,7 +9,7 @@ const finalTool={
   parameters:{type:'object',properties:{
     status:{type:'string',enum:['results','clarify','unsupported','insufficient']},
     message:{type:'string'},
-    candidate_ids:{type:'array',items:{type:'string'},maxItems:3}
+    candidate_ids:{type:'array',items:{type:'string'},maxItems:3,description:'Use an empty array [] for clarify, unsupported or insufficient. Only results may contain checked candidate IDs.'}
   },required:['status','message','candidate_ids'],additionalProperties:false}
 };
 const guidance=`Use one function per turn. Call finish_plan when done, including for clarification or unsupported requests.
@@ -25,13 +26,13 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
     let history=[],pending=null,started=false,finished=false;
     return {async next({instructions,toolDefinitions,state,events}){
       try{
-        if(finished)throw Error('Session already finished');
+        if(finished)throw new DecisionError('Session already finished');
         if(!started){
           history.push({role:'user',content:JSON.stringify({query:state.query,preferences:state.preferences})});
           started=true;
         }else{
           const last=events.at(-1);
-          if(!pending||last?.kind!=='observation'||last.name!==pending.name)throw Error('Missing matching harness observation');
+          if(!pending||last?.kind!=='observation'||last.name!==pending.name)throw new DecisionError('Missing matching harness observation');
           history.push({type:'function_call_output',call_id:pending.callId,output:JSON.stringify(last.data)});
           pending=null;
         }
@@ -47,25 +48,25 @@ export function createOpenAIModel({apiKey=process.env.OPENAI_API_KEY,model=proce
           throw Error('OpenAI HTTP '+response.status+code);
         }
         const data=await response.json();
-        if(data?.status!=='completed'||!Array.isArray(data.output))throw Error('Model response incomplete');
+        if(data?.status!=='completed'||!Array.isArray(data.output))throw new DecisionError('Model response incomplete');
         const calls=data.output.filter(item=>item.type==='function_call');
-        if(calls.length!==1)throw Error('Expected exactly one function call');
+        if(calls.length!==1)throw new DecisionError('Expected exactly one function call');
         const call=calls[0];
-        if(typeof call.call_id!=='string'||!call.call_id||typeof call.arguments!=='string')throw Error('Invalid model function call');
-        let args;try{args=JSON.parse(call.arguments)}catch{throw Error('Invalid function arguments JSON')}
-        if(!isObject(args))throw Error('Function arguments must be an object');
+        if(typeof call.call_id!=='string'||!call.call_id||typeof call.arguments!=='string')throw new DecisionError('Invalid model function call');
+        let args;try{args=JSON.parse(call.arguments)}catch{throw new DecisionError('Invalid function arguments JSON')}
+        if(!isObject(args))throw new DecisionError('Function arguments must be an object');
         if(call.name==='finish_plan'){
-          if(!sameKeys(args,['status','message','candidate_ids'])||!['results','clarify','unsupported','insufficient'].includes(args.status)||typeof args.message!=='string'||!args.message.trim()||!Array.isArray(args.candidate_ids)||args.candidate_ids.length>3||args.candidate_ids.some(x=>typeof x!=='string')||(args.status!=='results'&&args.candidate_ids.length))throw Error('Invalid final action');
+          if(!sameKeys(args,['status','message','candidate_ids'])||!['results','clarify','unsupported','insufficient'].includes(args.status)||typeof args.message!=='string'||!args.message.trim()||!Array.isArray(args.candidate_ids)||args.candidate_ids.length>3||args.candidate_ids.some(x=>typeof x!=='string'))throw new DecisionError('Invalid final action');
           finished=true;
-          return {type:'final',...args};
+          return {type:'final',...args,candidate_ids:args.status==='results'?args.candidate_ids:[]};
         }
-        if(!toolDefinitions.some(t=>t.name===call.name))throw Error('Unregistered model function');
+        if(!toolDefinitions.some(t=>t.name===call.name))throw new DecisionError('Unregistered model function');
         history.push(...data.output);
         pending={callId:call.call_id,name:call.name};
         return {type:'tool',name:call.name,args};
       }catch(error){
         // Never log credentials, request bodies or provider response bodies.
-        const message=typeof error?.message==='string'&&/^OpenAI HTTP [0-9]{3}( \((insufficient_quota|rate_limit_exceeded|slow_down|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)\))?$/.test(error.message)?error.message:'OpenAI adapter could not produce a valid decision.';
+        const message=typeof error?.message==='string'&&/^OpenAI HTTP [0-9]{3}( \((insufficient_quota|rate_limit_exceeded|slow_down|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded)\))?$/.test(error.message)?error.message:error instanceof DecisionError?'OpenAI decision rejected: '+error.message:'OpenAI adapter could not produce a valid decision.';
         try{onError(message)}catch{}
         throw Error(message);
       }

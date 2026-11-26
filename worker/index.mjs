@@ -36,9 +36,9 @@ export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getW
     let modelError='';
     async function finish(payload,status=200,errorCode){
       telemetry.finish({httpStatus:status,result:payload,inputMetadata,errorCode});
-      const exporting=telemetry.export();
-      if(ctx?.waitUntil)ctx.waitUntil(exporting);else await exporting;
-      return json({...payload,traceId:telemetry.traceId},status);
+      // Await the bounded export so the tester sees the actual receipt, not just a scheduled task.
+      await telemetry.export();
+      return json({...payload,traceId:telemetry.traceId,telemetryStatus:telemetry.exportStatus},status);
     }
     try{
       const model=modelFactory({apiKey:env.OPENAI_API_KEY,model:env.OPENAI_MODEL||defaultModel,onError:message=>{modelError=message},onUsage:value=>telemetry.onUsage(value)});

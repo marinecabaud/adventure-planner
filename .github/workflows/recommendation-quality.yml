@@ -1,0 +1,34 @@
+name: Adventure Planner recommendation quality
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/recommendation-quality.yml', 'evals/recommendation-quality-v1.json', 'evals/run-recommendation-quality.mjs']
+permissions:
+  contents: read
+concurrency:
+  group: recommendation-quality
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci
+      - name: Test evaluation logic
+        run: node --test evals/recommendation-quality.test.mjs
+      - name: Run 10 live scenarios and independent source review
+        env:
+          OPENAI_API_KEY: ${{ secrets.ADVENTURE_PLANNER }}
+        run: node evals/run-recommendation-quality.mjs
+      - name: Save complete evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommendation-quality-v1
+          path: evals/results/recommendation-quality-v1.json
+          if-no-files-found: warn

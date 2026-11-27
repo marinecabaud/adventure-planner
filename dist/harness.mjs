@@ -103,7 +103,9 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
           catch{data={status:'unavailable',reason:'Routing API call failed.'};}
           if(!data||!['estimate_available','no_route','unavailable','invalid_request'].includes(data.status)||(data.status==='estimate_available'&&(!Number.isFinite(data.durationSeconds)||data.durationSeconds<0||!Number.isFinite(data.distanceMeters)||data.distanceMeters<0)))data={status:'unavailable',reason:'Invalid routing response.'};
           const limit=state.preferences.maxTransferMinutes;
-          const comparison=data.status==='estimate_available'&&limit!==null?(data.durationSeconds<limit*60?'within_limit':'exceeds_limit'):'unknown';
+          const strictLimit=/(?:less than|under|fewer than|moins de|inf[eé]rieur(?:e)? à)\s+\d+\s*(?:minutes?|mins?\b|hours?|heures?)/i.test(state.query);
+          const withinLimit=limit!==null&&(strictLimit?data.durationSeconds<limit*60:data.durationSeconds<=limit*60);
+          const comparison=data.status==='estimate_available'&&limit!==null?(withinLimit?'within_limit':'exceeds_limit'):'unknown';
           const evidence={from_candidate_id:from.id,to_candidate_id:to.id,maxTransferMinutes:limit,comparison,data};
           routeEvidence.push(evidence);events.push({kind:'observation',name:action.name,data:evidence});
         }else{emit('reject','Unregistered tool or invalid arguments');return finish('insufficient','The agent requested an unsupported research action.');}

@@ -12,7 +12,7 @@ const lfStatus=x=>lfOutcomes.has(x)?x:'unknown';
 const lfObs=x=>({status:lfProviderStates.has(x?.status)?x.status:lfProviderStates.has(x?.data?.status)?x.data.status:undefined,count:Array.isArray(x)?x.length:Array.isArray(x?.candidates)?x.candidates.length:undefined,comparison:['within_limit','exceeds_limit','unknown'].includes(x?.comparison)?x.comparison:undefined});
 export function createLangfuseTrace(env,{fetchFn=fetch}={}){
   const traceId=lfRandom(16),rootId=lfRandom(8),started=lfTime(),spans=[];
-  let pendingTool=null,usage=null,generation=0,closed=false,exportStatus="not_attempted";
+  let geocodeStart=null,pendingTool=null,usage=null,generation=0,closed=false,exportStatus="not_attempted";
   const span=(name,type,begin,output,extra=[],error=false,id=lfRandom(8),parent=rootId)=>({
     traceId,spanId:id,...(parent?{parentSpanId:parent}:{}),name,kind:1,
     startTimeUnixNano:begin,endTimeUnixNano:lfTime(),
@@ -27,7 +27,7 @@ export function createLangfuseTrace(env,{fetchFn=fetch}={}){
   return {
     traceId,
     get exportStatus(){return exportStatus},
-    onTrace(event){if(event.type==='tool'&&lfTools.has(event.detail)){closeTool(undefined,true);pendingTool={name:event.detail,start:lfTime()}}},
+    onTrace(event){if(event.type==='geocoding_start'){geocodeStart=lfTime()}else if(event.type==='geocoding_finish'&&geocodeStart){const match=/^(\d+)\/(\d+) representative locations resolved$/.exec(event.detail);spans.push(span('geocode_activity_locations','tool',geocodeStart,match?{resolved:Number(match[1]),attempted:Number(match[2])}:{}));geocodeStart=null}else if(event.type==='tool'&&lfTools.has(event.detail)){closeTool(undefined,true);pendingTool={name:event.detail,start:lfTime()}}},
     onUsage(value){usage=value},
     wrapModel(model,name){
       return {...(typeof model.extractIntent==='function'?{async extractIntent(context){
@@ -56,7 +56,7 @@ export function createLangfuseTrace(env,{fetchFn=fetch}={}){
     },
     finish({httpStatus,result,inputMetadata={},errorCode}){
       if(closed)return;closed=true;closeTool(undefined,true);
-      const output={httpStatus,status:lfStatus(result?.status),toolCalls:result?.metrics?.toolCalls??0,modelSteps:result?.metrics?.modelSteps??0,candidates:result?.candidates?.length??0,...(errorCode?{errorCode}:{} )};
+      const output={httpStatus,status:lfStatus(result?.status),toolCalls:result?.metrics?.toolCalls??0,modelSteps:result?.metrics?.modelSteps??0,candidates:result?.candidates?.length??0,geocodedCandidates:result?.metrics?.geocodedCandidates??0,...(errorCode?{errorCode}:{} )};
       spans.push(span('Adventure Planner /api/plan','agent',started,output,[lfAttr('langfuse.observation.input',inputMetadata)],httpStatus>=400,rootId,null));
     },
     async export(){

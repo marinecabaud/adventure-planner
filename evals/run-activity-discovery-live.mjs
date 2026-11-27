@@ -1,18 +1,22 @@
 import {makeWorker} from '../worker/index.mjs';
 import {writeFile,mkdir} from 'node:fs/promises';
-const queries=['I want to ski in Tahoe on November 27 and 28.','I want to run at SeaRanch','I want to run at SeaRanch next week','Where in California can I kitesurf in spring?'];
+const queries=['I want to ski in Tahoe on November 27 and 28.','I want to run at SeaRanch','I want to run at SeaRanch next week','Where in California can I kitesurf in spring?','I want to ski and trail run around Tahoe, with less than 60 minutes driving between activities.'];
 const rows=[];
 await Promise.all(queries.map(async query=>{
  const app=makeWorker('');
  const response=await app.fetch(new Request('https://example.test/api/plan',{method:'POST',headers:{'content-type':'application/json','oai-authenticated-user-id':'synthetic-ci-owner'},body:JSON.stringify({query})}),{OPENAI_API_KEY:process.env.OPENAI_API_KEY});
  const result=await response.json();
- const candidates=(result.candidates||[]).map(({name,sports,sourceUrl,verified,lat,lon,coordinateEvidence})=>({name,sports,sourceUrl,verified,lat,lon,coordinateEvidence}));
+ const strict=query.includes('less than 60 minutes');
+ const display= strict&&result.status==='insufficient'?(result.exploratoryCandidates||[]):(result.candidates||[]);
+ const candidates=display.map(({name,sports,sourceUrl,verified,lat,lon,coordinateEvidence})=>({name,sports,sourceUrl,verified,lat,lon,coordinateEvidence}));
  const usedSearch=(result.trace||[]).some(e=>e.type==='tool'&&e.detail==='search_activity_locations');
  const mapPins=candidates.filter(c=>c.coordinateEvidence?.status==='resolved'&&Number.isFinite(c.lat)&&Number.isFinite(c.lon)).length;
  const coordinatesValid=candidates.every(c=>c.coordinateEvidence?.status==='resolved'?Number.isFinite(c.lat)&&Number.isFinite(c.lon)&&c.lat>=32.5&&c.lat<=42&&c.lon>=-124.6&&c.lon<=-114:c.lat===null&&c.lon===null);
  const discoveryPass=response.ok&&result.status==='results'&&usedSearch&&candidates.length>0&&candidates.length<=3&&candidates.every(c=>c.sourceUrl?.startsWith('https://')&&c.verified===false);
- const pass=discoveryPass&&coordinatesValid&&mapPins>0;
- rows.push({mapPins,coordinatesValid,discoveryPass,geocodingEvidence:result.geocodingEvidence,query,httpStatus:response.status,status:result.status,message:result.message||result.error,usedSearch,candidates,trace:result.trace,pass});
+ const transferVerified=result.status==='results'&&result.routeEvidence?.some(e=>e.comparison==='within_limit'&&e.data?.durationSeconds<3600)&&['Ski / snowboard','Trail running'].every(s=>candidates.some(c=>c.sports.includes(s)));
+ const fallbackValid=result.status==='insufficient'&&result.candidates?.length===0&&display.length>0&&display.every(c=>c.verified===false&&c.sourceUrl?.startsWith('https://'));
+ const pass=strict?response.ok&&usedSearch&&result.normalizedIntent?.maxTransferMinutes===60&&coordinatesValid&&mapPins>0&&(transferVerified||fallbackValid):discoveryPass&&coordinatesValid&&mapPins>0;
+ rows.push({strict,transferVerified,fallbackValid,routeEvidence:result.routeEvidence,mapPins,coordinatesValid,discoveryPass,geocodingEvidence:result.geocodingEvidence,query,httpStatus:response.status,status:result.status,message:result.message||result.error,usedSearch,candidates,trace:result.trace,pass});
 }));
 await mkdir('evals/results',{recursive:true});await writeFile('evals/results/activity-discovery-live.json',JSON.stringify(rows,null,2));
 for(const row of rows)console.log(JSON.stringify(row));

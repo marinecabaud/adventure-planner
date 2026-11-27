@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/activity-discovery.yml', 'integrations/activity-search.mjs', 'dist/harness.mjs', 'models/openai-model.mjs']
+    paths: ['.github/workflows/activity-discovery.yml', 'integrations/activity-search.mjs', 'integrations/geocoding-api.mjs', 'evals/run-activity-discovery-live.mjs', 'dist/harness.mjs', 'models/openai-model.mjs']
 permissions:
   contents: read
 jobs:
@@ -19,7 +19,7 @@ jobs:
         run: npm ci
       - name: Test hosted worker and harness
         run: node --test tests/*.test.mjs
-      - name: Run three original prompts using real search
+      - name: Run four acceptance prompts using real search and geocoding
         env:
           OPENAI_API_KEY: ${{ secrets.ADVENTURE_PLANNER }}
         run: node evals/run-activity-discovery-live.mjs

@@ -36,3 +36,13 @@ test('unknown candidate ID cannot become a result even when web search fails',as
  const res=await createHarness({model,fixtures:{},activitySearchTool:async()=>({status:'unavailable',candidates:[]})}).run({query:'Sea Ranch run'});
  assert.equal(res.status,'insufficient');assert.deepEqual(res.candidates,[]);
 });
+test('ordinary discovery preserves sourced leads even if final conditions cannot be verified',async()=>{
+ const model={extractIntent:async()=>raw,next:async({events})=>events.length?{type:'final',status:'insufficient',message:'Access is not verified.',candidate_ids:[]}:{type:'tool',name:'search_activity_locations',args:{}}};
+ const res=await createHarness({model,fixtures:{},activitySearchTool:async i=>parseActivitySearch(payload([row]),i)}).run({query:'Sea Ranch run'});
+ assert.equal(res.status,'results');assert.equal(res.candidates.length,1);assert.match(res.message,/not a confirmed itinerary/);
+});
+test('weather request for discovered location without sourced coordinates returns unavailable safely',async()=>{
+ const model={extractIntent:async()=>({...raw,dateStatus:'resolved',startDate:'2026-11-27',endDate:'2026-11-28'}),next:async({events})=>events.length===0?{type:'tool',name:'search_activity_locations',args:{}}:events.length===2?{type:'tool',name:'get_weather_forecast',args:{candidate_id:'web-0'}}:{type:'final',status:'results',message:'Provisional.',candidate_ids:['web-0']}};
+ const res=await createHarness({model,fixtures:{},activitySearchTool:async i=>parseActivitySearch(payload([row]),i),weatherTool:async()=>{throw Error('Must not call NOAA with null coordinates')},clock:()=>new Date('2026-11-26T20:00:00Z')}).run({query:'Sea Ranch run'});
+ assert.equal(res.status,'results');assert.equal(res.weatherEvidence[0].data.status,'unavailable');
+});

@@ -40,6 +40,18 @@ export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getW
     const inputMetadata={queryLength:query.length,hasDates:!!(preferences.startDate&&preferences.endDate),hasSkill:!!preferences.skill,hasOrigin:!!preferences.origin,hasTransferLimit:preferences.maxTransferMinutes!==null};
     let modelError='';
     async function finish(payload,status=200,errorCode){
+      // Safe operational diagnostics: never log user messages, names, coordinates or credentials.
+      console.info('Adventure Planner outcome '+JSON.stringify({
+        traceId:telemetry.traceId,httpStatus:status,
+        outcome:['results','clarify','unsupported','insufficient'].includes(payload.status)?payload.status:'error',
+        candidates:Array.isArray(payload.candidates)?payload.candidates.length:0,
+        geocoded:payload.metrics?.geocodedCandidates??0,
+        searchCalled:!!payload.trace?.some(e=>e.type==='tool'&&e.detail==='search_activity_locations'),
+        dateStatus:payload.normalizedIntent?.dateStatus??null,
+        forecastEligible:payload.normalizedIntent?.forecastEligible??false,
+        traceTypes:(payload.trace||[]).map(e=>e.type).slice(0,24),
+        errorCode:errorCode||null
+      }));
       telemetry.finish({httpStatus:status,result:payload,inputMetadata,errorCode});
       // Await the bounded export so the tester sees the actual receipt, not just a scheduled task.
       await telemetry.export();

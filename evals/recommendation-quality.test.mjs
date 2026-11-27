@@ -34,3 +34,9 @@ test('partial score is distinct from pass and unknown is not a pass',()=>{
  const q=makeChecks('partial').map(x=>({...x,status:x.id==='geography'?'pass':x.id==='activity'?'unknown':'partial'}));
  const s=summarize([{quality:q,structure:[]}]);assert.equal(s.quality.pass,1);assert.equal(s.quality.partial,5);assert.equal(s.quality.unknown,1);assert.equal(s.qualityScore,3.5/6);
 });
+test('inapplicable dimensions are excluded even when the judge incorrectly scores them',()=>{
+ const t={...testcase,query:'I want to run at Sea Ranch'};
+ const checks=parseJudge(payload(makeChecks('pass')),t,result);
+ assert.equal(checks.find(x=>x.id==='season').status,'not_applicable');
+ assert.equal(checks.find(x=>x.id==='ranking').status,'not_applicable');
+});

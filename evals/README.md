@@ -10,12 +10,12 @@
 
 ## Tool-selection baseline
 - `tool-selection-v1.json` and `run-tool-selection.mjs`: 15 scenarios against controlled fixture-era tools. The 88.3% baseline is historical, not a measurement of live discovery. See `tool-selection-baseline-v1.md`.
-- `run-activity-discovery-live.mjs`: three original prompts against the actual hosted Worker logic and native web search. Smoke verifies candidate/source presence, not content quality.
+- `run-activity-discovery-live.mjs`: original prompts plus the Tahoe hard-transfer acceptance case against the hosted Worker logic and native web search. Smoke verifies candidate/source presence, not content quality.
 
 ## Recommendation quality V1
 - `recommendation-quality-v1.json`: ten scenarios covering all seven sports, date/skill normalization, out-of-scope rejection, multi-sport transfer constraints. References are independently checked examples, not exhaustive answer keys.
 - `run-recommendation-quality.mjs`: live model + actual search/weather/routing adapters; deterministic structural checks separate from a web-research LLM judge. The judge receives actual final message, cards, sources, evidence and trace, and searches independently. It evaluates geography, activity, season, source quality, conditions, ranking and skill fit. A factual grade without a retrieved source becomes unknown.
 - `recommendation-quality.test.mjs`: deterministic scorer tests, including attempts to award pass without evidence.
 - Grade each dimension as pass, partial, fail, unknown or not applicable. Quality score weights partial at 0.5 and excludes unknown/N/A from denominator; always report coverage and unknown count alongside it. Full pass requires all applicable evidence to support the result. A successful smoke is not a quality pass.
-- GitHub Actions → **Adventure Planner recommendation quality** → Run workflow. Existing ADVENTURE_PLANNER secret; bounded runs, costs apply. Reference time is frozen for intent, while web/conditions are current at evaluation time; historical-date forecasts may not be available on later runs. Do not treat the independent LLM judge as a substitute for human review. Map/geocoding remains out of scope.
+- GitHub Actions → **Adventure Planner recommendation quality** → Run workflow. Existing ADVENTURE_PLANNER secret; bounded runs, costs apply. Reference time is frozen for intent, while web/conditions are current at evaluation time; historical-date forecasts may not be available on later runs. Do not treat the independent LLM judge as a substitute for human review. The original baseline did not acceptance-test map/geocoding; subsequent checks cover geocoding but live outcomes remain mixed.
 - Job summary and JSON artifact record each case, criteria, evidence, source URLs and reasons. No production deploy is triggered by eval-only changes.

@@ -4,3 +4,5 @@ node_modules/
 !.env.example
 dist/server/
 dist/.openai/
+evals/results/
+agent-result.json

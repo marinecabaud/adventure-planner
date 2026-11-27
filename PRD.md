@@ -1,5 +1,5 @@
 # Adventure Planner — Product Requirements Document
-Version 0.1 | 2026-11-26 | Product framing baseline
+Version 0.2 | 2026-11-27 | Product framing and implementation status
 
 ## Vision
 Help outdoor enthusiasts discover where to go, when to go, and how to combine multiple sports into a single trip through personalized, evidence-based recommendations.
@@ -7,7 +7,7 @@ Help outdoor enthusiasts discover where to go, when to go, and how to combine mu
 ## Problem and value proposition
 Multi-sport travelers must cross-reference fragmented information about destinations, seasonality, weather, sport-specific conditions, logistics and access. Adventure Planner researches and compares these factors to recommend compatible combinations, explaining trade-offs and uncertainty.
 
-## Validated scope
+## Defined scope
 - Audience: multi-sport outdoor enthusiasts.
 - Geography: California, USA; a trip may combine multiple nearby California destinations.
 - Sports: ski/snowboard, kitesurf, hiking, mountain biking, surf, trail running, cycling.
@@ -61,7 +61,7 @@ Example (illustrative only): four days in February, starting from San Francisco,
 | Trail running | Access, terrain, weather, distance |
 | Cycling | Road conditions, elevation, wind, temperature |
 
-Cross-cutting: California location, seasonality, coordinates, travel distance/time, access restrictions, skill suitability, source provenance and freshness. Actual provider selection and coverage validation are pending.
+Cross-cutting: California location, seasonality, coordinates, travel distance/time, access restrictions, skill suitability, source provenance and freshness. Initial providers are implemented (see the [architecture](docs/architecture.md)); comprehensive coverage and source quality validation remain pending.
 
 ## Success metrics (proposed development targets, not measured results)
 Product: recommendation acceptance, planning completion, time saved, satisfaction, repeat usage.
@@ -86,4 +86,19 @@ Define evaluation denominators, rubric and sample size before comparing versions
 
 ## Delivery approach
 UX-first: define target experience, wireframes and realistic sample output using explicitly illustrative data. Then map UI fields and interaction states to agent outputs, required evidence, tools and feasibility spikes. Implement a narrow vertical slice before expanding across all supported sports and use cases.
-Architecture, provider choices, final designs and measured results are not yet validated.
+The current repository implements a working experimental vertical slice, with partial live validation. See the [evaluation reports](evals/README.md) for measured historical results and limitations.
+
+## Implementation status — November 27, 2026
+
+| Capability | Status |
+| --- | --- |
+| Hybrid conversational UI, guided entry and structured preferences | Implemented |
+| Structured intent, date and default skill normalization | Implemented; regression testing ongoing |
+| Live sourced activity discovery, geocoding, map rendering | Implemented; live acceptance remains mixed |
+| NOAA forecast and OSRM route estimates | Implemented with coverage limitations |
+| Bounded harness, validation, uncertainty and hard transfer checks | Implemented; re-evaluate current build |
+| Langfuse tracing and offline/live evaluation framework | Implemented; historical baselines documented |
+| Complete verification of access, sport-specific suitability, exact activity-to-activity routes | Not validated |
+| Persistent conversation memory, booking and payments | Out of MVP |
+
+Next release: prioritize reliable evidence, source quality, geocoding acceptance and hard-constraint compliance over adding new features. Product adoption and satisfaction targets have not been measured.

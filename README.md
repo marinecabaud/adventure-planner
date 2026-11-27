@@ -1,44 +1,108 @@
 # Adventure Planner
-UX-first California travel agent prototype. Open the hosted site and select a sample prompt; expand Agent execution trace beneath the results.
-## Harness V0
-`dist/harness.mjs`: model adapter contract, instructions, tool registry, bounded loop, argument and provenance validation, errors and traces.
-`dist/fixtures.mjs`: illustrative candidate fixtures, not live data.
-`tests/harness.test.mjs`: deterministic execution and negative-path tests.
-Run `node --test tests/harness.test.mjs`.
-The demo adapter is deterministic; the hosted Worker and CLI use the live OpenAI adapter. No real-world suitability, travel time, forecast, skill matching or autonomy has been validated. The browser holds transient state only. Next: server-side LLM adapter, typed intent and persistent turn context, real data tools, scope/constraint validators, and full product evals.
 
-## Weather integration V0.2 — API + MCP
-- Weather provider: NOAA / National Weather Service. Public point lookup → trusted forecast endpoint, filtered to explicit travel dates; returns source URL, issue/retrieval time, periods and limitations.
-- `integrations/weather-api.mjs` holds the HTTP adapter; `weather-mcp-server.mjs` exposes the read-only tool through the official MCP SDK over stdio. `weather-mcp-client.mjs` discovers and calls it.
-- The harness can register an optional weather tool. It supplies only known candidate coordinates and explicit travel dates; tool calls count toward its existing budget. The demo model still makes deterministic decisions; geography is still fixture-based, not verified by an authoritative boundary.
-- Node 24+, run `npm ci` then `npm test`. Run `npm run weather:mcp -- YYYY-MM-DD YYYY-MM-DD` with dates within the next seven local calendar days to launch the live research demo. Longer-range requests return a horizon limitation; no forecast is fabricated.
-- No API credentials needed for NWS. Network access is needed for live calls. The stdio MCP integration is CLI-only; the hosted Worker calls the same NOAA HTTP adapter directly because Workers cannot spawn Node child processes. Weather is not resort availability, route access, marine conditions or an activity safety assessment.
-- Official API: https://www.weather.gov/documentation/services-web-api ; MCP SDK: https://github.com/modelcontextprotocol/typescript-sdk
+**An agentic AI outdoor adventure planner for California.**
 
-## Routing integration V0.3 — direct API (no MCP)
-- `integrations/routing-api.mjs` calls OSRM's public demo read-only driving route endpoint directly. No API credentials; intended for a low-volume, non-commercial development demonstration, not production. The CLI makes one request per run; do not automate repeated calls (public demo policy: max one request per second). A production integration needs an appropriate provider or hosted OSRM.
-- The harness registers the optional `get_drive_estimate` tool, resolves known candidate IDs to representative area coordinates, validates duration/distance and compares duration against an explicit `maxTransferMinutes` preference. It reports `within_limit`, `exceeds_limit` or `unknown`; no route/provider failure never becomes a fabricated duration.
-- Run `npm run routing:demo -- 60` for a North Tahoe → Sierra foothills comparison. This is **area-to-area**, not precise sports locations; no live traffic, weather, closures, or access validation. It does not constitute a verified itinerary or automatically enforce all transfer constraints across the final recommendations yet.
-- Official API: https://project-osrm.org/docs/v5.24.0/api/ ; demo policy: https://github.com/Project-OSRM/osrm-backend/wiki/Demo-server
-- The hosted UI now calls this adapter through the server-side Worker.
+Discover where to go, when to go and how to combine outdoor activities without manually researching dozens of destinations, forecasts and travel routes.
 
-## LLM integration V0.4 — Responses API + native function calling
-- `models/openai-model.mjs` implements the model adapter, using the OpenAI Responses REST API, configurable with `OPENAI_MODEL` (default `gpt-5.4-mini`). Each harness run creates a separate model session. Registered tools are sent with strict argument schemas; a single function call is accepted per turn. Tool results return to the model using `function_call_output`. The harness retains control of actual execution, argument validation, budgets and candidate provenance.
-- `finish_plan` is a structured model response, not an executable external action. Responses are requested with `store:false`, and reasoning continuity is maintained with encrypted reasoning items when supplied. No API response bodies or credentials are logged by the adapter.
-- Setup: `npm ci`; copy `.env.example` to `.env` and add your own OpenAI API key locally. Never commit the key, paste it into chat, or put it in browser code. API usage is separately billed from ChatGPT.
-- Run `npm run agent:live -- "Ski and trail running in Tahoe; compare the north shore to the Sierra foothills" '{"maxTransferMinutes":60}'`. Add explicit ISO startDate/endDate for weather. The CLI uses the real model and enables existing weather MCP and routing API tools. The public OSRM endpoint is for low-volume development only. Model calls are bounded; no automatic retry.
-- `npm test` exercises the adapter with simulated Responses API replies, including a full multi-tool loop. Live OpenAI calls require a valid key and network access; simulated replies are not evidence of real model quality.
-- The CLI and hosted UI now share the same harness and model adapter. Typed date/transfer preferences are still supplied separately from free text; general intent extraction, live spot discovery, complete constraint enforcement, and model-quality evaluations are pending. Candidate data is still fixture-based. A strict schema does not guarantee factual or product-level correctness.
-- Official docs: https://developers.openai.com/api/docs/guides/function-calling ; https://developers.openai.com/api/docs/quickstart
+A hands-on product management case study by Marine Cabaud, exploring the end-to-end lifecycle of an agentic AI product: discovery, UX, product requirements, orchestration, integrations, evaluations and observability.
 
+[Product requirements](PRD.md) · [Architecture](docs/architecture.md) · [Evaluation framework](evals/README.md) · [Development history](CHANGELOG.md)
 
-## Hosted live UI V0.5
-- The existing Site is owner-private. The browser sends a same-origin POST to `/api/plan`; the Worker checks signed-in identity, validates bounded inputs and runs the existing harness with the live Responses API adapter.
-- Runtime `OPENAI_API_KEY` is configured as a Sites secret, distinct from GitHub Actions' existing `ADVENTURE_PLANNER` secret. No credentials are in source or browser responses.
-- The Worker uses direct NOAA HTTP because the hosted runtime has no Node child processes. The original CLI weather MCP remains unchanged; an HTTP-compatible MCP transport is a future step. OSRM remains a development-only demo.
-- Use **Add preferences** for exact travel dates and max transfer minutes. Weather and route evidence are displayed in **Agent execution trace**; candidate inventory remains illustrative and activity access/safety is not verified. There is no persistent conversational memory yet.
-- Build: `node scripts/build-worker.mjs`. Test: `node --test tests/*.test.mjs` after installing dependencies if needed. Worker tests inject fake tools/model and verify auth, input validation, evidence routing and sanitized failures. Real provider calls require the deployed runtime.
-- Deployment output is `dist/server/index.js` and `dist/.openai/hosting.json`; these are generated, not committed.
+## Product experience
 
-## Langfuse observability V0.6
-The hosted Worker creates a request-scoped OpenTelemetry trace and exports it to Langfuse Cloud with OTLP/HTTP (v4). Set runtime variables `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL` to the project's region. Use runtime secrets, never commit credentials. The root observation includes HTTP and product outcome, counts, and preference-presence flags. Child spans include each model decision (with reported token usage) and executed tool (with status/count/transfer comparison where available). Raw prompts, responses, coordinates, tool arguments, and visitor identity are deliberately excluded. The app returns a trace ID for correlation. Export is best-effort and awaited with a bounded timeout: a telemetry outage cannot break the agent. The response and execution trace include a safe telemetry status (exported, HTTP code, or categorized encoding/fetch failure) so testers can distinguish delivery failures from agent failures. Only accepted plan requests reaching the harness are traced; earlier HTTP validation errors remain in platform logs. The existing Node CLI and model behavior remain unchanged. New instrumentation tests simulate the exporter; end-to-end delivery is verified by running a hosted plan and locating the trace ID in Langfuse.
+Try prompts such as:
+
+- “Where in California can I kitesurf in spring?”
+- “I want to run at Sea Ranch next week.”
+- “I want to ski and trail run around Tahoe, with less than 60 minutes driving between activities.”
+
+The UX combines a natural-language entry point, optional structured preferences, recommendation cards, map and an expandable execution trace. It covers skiing/snowboarding, kitesurfing, hiking, mountain biking, surfing, trail running and cycling.
+
+**Status:** working experimental MVP, not a production trip advisor. The hosted live prototype is access-controlled; this repository documents the implementation. Recommendations are exploratory and may lack sufficient evidence to satisfy all constraints.
+
+## What makes it agentic?
+
+The model is responsible for deciding what information it needs, selecting registered tools and synthesizing evidence. A separate, model-independent harness controls execution, budgets, input validation, provenance and the final result. When a mandatory constraint cannot be supported, the agent can return an insufficient-evidence outcome rather than inventing a recommendation.
+
+```mermaid
+flowchart TD
+  U["User request + preferences"] --> W["Authenticated Worker"]
+  W --> I["Structured intent normalization"]
+  I --> H["Bounded agent harness"]
+  H <-->|"Tool decisions and observations"| M["OpenAI Responses API"]
+  H --> S["Live activity discovery / web search"]
+  H --> G["Geocoding"]
+  H --> F["NOAA weather"]
+  H --> R["OSRM routing estimates"]
+  S & G & F & R --> H
+  H --> O["Results, caveats, map and trace"]
+  H -.-> L["Langfuse telemetry"]
+  E["Evaluation datasets + regression tests"] -.-> H
+```
+
+See [architecture and implementation trade-offs](docs/architecture.md) for the CLI/MCP path, tool boundaries and limitations.
+
+## Evaluation: from failure to iteration
+
+The MVP was developed with failure-driven evaluation. Instead of treating a successful model call as product success, the framework checks intent extraction, tool use, constraints, sources and recommendation quality separately.
+
+| Baseline (November 26, 2026) | Recorded result | How to interpret it |
+| --- | --- | --- |
+| [Intent and context](evals/baseline-v1.md) | 99/129 behavioral criteria demonstrated (76.7%) | Historical judge baseline; some false positives and unobserved structured checks |
+| [Tool selection](evals/tool-selection-baseline-v1.md) | 91/103 checks (88.3%) | Deterministic historical fixture-era baseline; does not measure live discovery |
+| [Recommendation quality](evals/recommendation-quality-baseline-v1.md) | 102/102 technical checks; 86.4% weighted quality, 97.8% evidence coverage | Ten scenarios; provisional web-research LLM judge, partial credit, one unknown; workflow failed by design on unknown |
+
+These are historical results for the linked source commits, not scores for the current build. Subsequent live discovery and geocoding runs have mixed outcomes, including failures; the agent is not fully quality-validated.
+
+**Product learnings:** failures revealed redundant clarification, incomplete geographic inventory, unverified activity access, missing skill evidence and hard transfer constraints. Later iterations added normalized intent, live search, geocoding, and stricter transfer-limit handling. The next priority is re-evaluation after those changes.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| [PRD.md](PRD.md) | Product problem, requirements, scope, metrics and status |
+| [dist/](dist/) | Browser UI, intent logic, model-independent harness and illustrative fixtures (checked-in source despite the folder name) |
+| [models/](models/) | OpenAI Responses API adapter |
+| [integrations/](integrations/) | Discovery, geocoding, weather, routing, MCP and telemetry |
+| [worker/](worker/) | Authenticated hosted API and asset serving |
+| [evals/](evals/) | Datasets, scorers, baseline reports and live evaluation runners |
+| [tests/](tests/) | Automated regression and failure-path tests |
+| [AGENTS.md](AGENTS.md) | Development instructions and guardrails |
+| [CHANGELOG.md](CHANGELOG.md) | Development milestones and historical notes |
+
+## Run locally
+
+Requires Node.js 24+ and npm. Mocked tests do not require API credentials.
+
+```sh
+npm ci
+npm test
+node --test evals/*.test.mjs
+```
+
+To try the CLI with the live model, copy `.env.example` to `.env`, provide your own OpenAI API key securely and run:
+
+```sh
+npm run agent:live -- "Ski and trail running in Tahoe; compare north shore and Sierra foothills" '{"maxTransferMinutes":60}'
+```
+
+The CLI uses the original illustrative candidate inventory plus the weather MCP and routing tools, not the hosted worker's web discovery path. Live calls require network access and may incur API charges.
+
+Other commands:
+
+- `npm run weather:mcp -- YYYY-MM-DD YYYY-MM-DD` — dates within the available forecast horizon, using NOAA through MCP.
+- `npm run routing:demo -- 60` — representative area driving estimate.
+- `node scripts/build-worker.mjs` — generate the hosted deployment bundle (not a standalone local server).
+
+Never commit API keys. The hosted UI requires authenticated access and server-side runtime variables; publishing source code does not grant access to the hosted app.
+
+## Limitations and next steps
+
+- Re-run intent, discovery, recommendation and map acceptance tests against the current source and deployed version.
+- Verify exact activity coordinates, access, skill suitability, resort opening and sport-specific conditions using authoritative sources.
+- Use a production-appropriate routing provider and verify actual activity-to-activity travel constraints. OSRM's public demo estimates are not live traffic or road safety guidance.
+- Improve ranking and multi-turn context; no persistent conversation memory or booking is implemented.
+- Human-calibrate the quality rubric; track latency, cost, task success and evidence coverage over time.
+- Before opening a public live demo, implement usage quotas, abuse controls and cost monitoring.
+
+Outdoor conditions change. Check official local sources before relying on any recommendation.

@@ -4,6 +4,7 @@ import {createHarness} from '../dist/harness.mjs';
 import {fixtures} from '../dist/fixtures.mjs';
 import {createOpenAIModel,defaultModel} from '../models/openai-model.mjs';
 import {createActivitySearch} from '../integrations/activity-search.mjs';
+import {createGeocoder} from '../integrations/geocoding-api.mjs';
 import {getWeatherForecast} from '../integrations/weather-api.mjs';
 import {getDriveEstimate} from '../integrations/routing-api.mjs';
 
@@ -78,8 +79,13 @@ async function run(){
    const group=dataset.cases.slice(i,i+2);
    const evaluated=await Promise.all(group.map(async test=>{
     const start=Date.now();let modelError=null;
-    const r=await createHarness({model:createOpenAIModel({apiKey,model,onError:e=>{modelError=e}}),fixtures,activitySearchTool:createActivitySearch({apiKey,model}),weatherTool:getWeatherForecast,routeTool,maxSteps:7,maxCalls:6,clock:()=>new Date(dataset.referenceTime)}).run({query:test.query});
+    const r=await createHarness({model:createOpenAIModel({apiKey,model,onError:e=>{modelError=e}}),fixtures,activitySearchTool:createActivitySearch({apiKey,model}),geocodeTool:createGeocoder(),weatherTool:getWeatherForecast,routeTool,maxSteps:7,maxCalls:6,clock:()=>new Date(dataset.referenceTime)}).run({query:test.query});
     const structure=gradeStructure(test,r);
+    if(test.expected==='results'){
+      const candidates=r.candidates||[];
+      structure.push({id:'map_pin_available',status:candidates.some(c=>c.coordinateEvidence?.status==='resolved'&&Number.isFinite(c.lat)&&Number.isFinite(c.lon))?'pass':'fail'});
+      structure.push({id:'coordinate_provenance',status:candidates.every(c=>c.coordinateEvidence?.status==='resolved'?Number.isFinite(c.lat)&&Number.isFinite(c.lon)&&c.lat>=32.5&&c.lat<=42&&c.lon>=-124.6&&c.lon<=-114:c.lat===null&&c.lon===null)?'pass':'fail'});
+    }
     let quality=[],judgeError=null;
     if(test.expected==='results'||r.candidates?.length){
       for(let attempt=0;attempt<2;attempt++){

@@ -3,6 +3,8 @@ import {fixtures} from '../dist/fixtures.mjs';
 import {createOpenAIModel,defaultModel} from '../models/openai-model.mjs';
 import {getWeatherForecast} from '../integrations/weather-api.mjs';
 import {getDriveEstimate} from '../integrations/routing-api.mjs';
+import {createGeocoder} from '../integrations/geocoding-api.mjs';
+import {landscapeBase64,faviconSvg} from '../dist/landscape-assets.mjs';
 import {createActivitySearch} from '../integrations/activity-search.mjs';
 import {createLangfuseTrace} from '../integrations/langfuse-telemetry.mjs';
 
@@ -12,10 +14,12 @@ const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers});
 const validISO=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&!Number.isNaN(Date.parse(s))&&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
 const str=(s,max)=>typeof s==='string'?s.trim().slice(0,max):'';
-export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getWeatherForecast,routeTool=getDriveEstimate,telemetryFactory=createLangfuseTrace,activitySearchFactory=createActivitySearch}={}){
+export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getWeatherForecast,routeTool=getDriveEstimate,telemetryFactory=createLangfuseTrace,geocodeTool=createGeocoder(),activitySearchFactory=createActivitySearch}={}){
   return {async fetch(request,env,ctx){
     const url=new URL(request.url);
     if(url.pathname==='/'&&request.method==='GET')return new Response(html,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+    if(request.method==='GET'&&url.pathname==='/favicon.svg')return new Response(faviconSvg,{headers:{'Content-Type':'image/svg+xml','Cache-Control':'public,max-age=86400','X-Content-Type-Options':'nosniff'}});
+    if(request.method==='GET'&&url.pathname==='/assets/landscapes.jpg')return new Response(Uint8Array.from(atob(landscapeBase64),c=>c.charCodeAt(0)),{headers:{'Content-Type':'image/jpeg','Cache-Control':'public,max-age=86400','X-Content-Type-Options':'nosniff'}});
     if(url.pathname!=='/api/plan')return json({error:'Not found'},404);
     if(request.method!=='POST')return json({error:'Use POST'},405);
     // The site is owner-private. Require the platform's authenticated visitor identity too.
@@ -43,7 +47,7 @@ export function makeWorker(html,{modelFactory=createOpenAIModel,weatherTool=getW
     }
     try{
       const model=modelFactory({apiKey:env.OPENAI_API_KEY,model:env.OPENAI_MODEL||defaultModel,onError:message=>{modelError=message},onUsage:value=>telemetry.onUsage(value)});
-      const result=await createHarness({model:telemetry.wrapModel(model,env.OPENAI_MODEL||defaultModel),fixtures,weatherTool,routeTool,activitySearchTool:activitySearchFactory({apiKey:env.OPENAI_API_KEY,model:env.OPENAI_MODEL||defaultModel,onUsage:value=>telemetry.onUsage(value)}),maxSteps:7,maxCalls:6,onTrace:event=>telemetry.onTrace(event)}).run({query,preferences});
+      const result=await createHarness({model:telemetry.wrapModel(model,env.OPENAI_MODEL||defaultModel),fixtures,weatherTool,routeTool,geocodeTool,activitySearchTool:activitySearchFactory({apiKey:env.OPENAI_API_KEY,model:env.OPENAI_MODEL||defaultModel,onUsage:value=>telemetry.onUsage(value)}),maxSteps:7,maxCalls:6,onTrace:event=>telemetry.onTrace(event)}).run({query,preferences});
       if(modelError)return finish({error:'The live model could not complete the request. '+modelError},502,'model_error');
       return finish({...result,model:env.OPENAI_MODEL||defaultModel,weatherTransport:'direct HTTP (NOAA)',limitations:['Web-sourced candidates are exploratory; check primary sources before visiting.','Exact activity locations, opening status, safety and road access are not verified.','Routing is a public demo estimate, not live traffic.']});
     }catch{return finish({error:'The live agent is temporarily unavailable.'},502,'agent_error')}

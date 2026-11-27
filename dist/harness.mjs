@@ -16,10 +16,16 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
   return {async run(request){
     const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let geocodingEvidence=[];let weatherEvidence=[];let routeEvidence=[];let normalizedIntent=null;
     const emit=(type,detail)=>{const event={step:trace.length+1,type,detail};trace.push(event);try{onTrace(event)}catch{}};
-    function finish(status,message,candidates=[]){
+    function finish(status,message,candidates=[],exploratoryCandidates=[]){
       emit('finish',status);
       const disclosure=assumptionMessage(normalizedIntent);
-      return {status,message:disclosure?disclosure+' '+message:message,candidates,normalizedIntent,weatherEvidence,routeEvidence,geocodingEvidence,trace,metrics:{toolCalls:calls,geocodedCandidates:geocodingEvidence.filter(x=>x.status==='resolved').length,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:activitySearchTool&&normalizedIntent?'web_discovery':'fixture'};
+      return {status,message:disclosure?disclosure+' '+message:message,candidates,exploratoryCandidates,normalizedIntent,weatherEvidence,routeEvidence,geocodingEvidence,trace,metrics:{toolCalls:calls,geocodedCandidates:geocodingEvidence.filter(x=>x.status==='resolved').length,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:activitySearchTool&&normalizedIntent?'web_discovery':'fixture'};
+    }
+    function unverifiedTransfer(message){
+      emit('constraint','Required travel limit not verified');
+      const leads=[...available.values()].filter(x=>checked.has(x.id)).slice(0,3);
+      const note=leads.length?(normalizedIntent?.responseLanguage==='fr'?' Les lieux ci-dessous sont uniquement des pistes : le temps de trajet demandé n’est pas validé.':' The locations below are exploratory only; the requested travel limit has not been verified.'):'';
+      return finish('insufficient',message+note,[],leads);
     }
     if(!clean(request?.query))return finish('clarify','Tell me which sports, dates or destination you have in mind.');
     const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin),startDate:clean(request.preferences?.startDate),endDate:clean(request.preferences?.endDate),maxTransferMinutes:Number.isFinite(request.preferences?.maxTransferMinutes)&&request.preferences.maxTransferMinutes>0?request.preferences.maxTransferMinutes:null}};
@@ -97,7 +103,7 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
           catch{data={status:'unavailable',reason:'Routing API call failed.'};}
           if(!data||!['estimate_available','no_route','unavailable','invalid_request'].includes(data.status)||(data.status==='estimate_available'&&(!Number.isFinite(data.durationSeconds)||data.durationSeconds<0||!Number.isFinite(data.distanceMeters)||data.distanceMeters<0)))data={status:'unavailable',reason:'Invalid routing response.'};
           const limit=state.preferences.maxTransferMinutes;
-          const comparison=data.status==='estimate_available'&&limit!==null?(data.durationSeconds<=limit*60?'within_limit':'exceeds_limit'):'unknown';
+          const comparison=data.status==='estimate_available'&&limit!==null?(data.durationSeconds<limit*60?'within_limit':'exceeds_limit'):'unknown';
           const evidence={from_candidate_id:from.id,to_candidate_id:to.id,maxTransferMinutes:limit,comparison,data};
           routeEvidence.push(evidence);events.push({kind:'observation',name:action.name,data:evidence});
         }else{emit('reject','Unregistered tool or invalid arguments');return finish('insufficient','The agent requested an unsupported research action.');}
@@ -110,13 +116,14 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
             const label=normalizedIntent.responseLanguage==='fr'?' Voici des pistes issues de sources web, et non un itinéraire confirmé. Vérifie les conditions, l’accès et la sécurité avant de partir.':' Here are web-sourced leads, not a confirmed itinerary. Verify conditions, access and safety before visiting.';
             return finish('results',clean(action.message)+label,[...available.values()].slice(0,3));
           }
+          if(action.status==='insufficient'&&liveDiscovery&&available.size&&(normalizedIntent.maxOriginDriveMinutes||normalizedIntent.maxTransferMinutes))return unverifiedTransfer(clean(action.message));
           return finish(action.status,clean(action.message));
         }
         const ids=action.candidate_ids;
         if(!Array.isArray(ids)||ids.length===0||ids.length>3||new Set(ids).size!==ids.length||ids.some(id=>!available.has(id)||!checked.has(id))){
           emit('reject','Result lacks candidate and evidence provenance');return finish('insufficient','The candidate evidence was incomplete.');
         }
-        if(liveDiscovery&&(normalizedIntent.maxOriginDriveMinutes||(normalizedIntent.maxTransferMinutes&&!routeEvidence.some(e=>e.comparison==='within_limit'))))return finish('insufficient',normalizedIntent.responseLanguage==='fr'?'Je ne peux pas vérifier la contrainte de trajet.':'I could not verify the required travel limit.');
+        if(liveDiscovery&&(normalizedIntent.maxOriginDriveMinutes||(normalizedIntent.maxTransferMinutes&&!routeEvidence.some(e=>e.comparison==='within_limit'&&ids.length===2&&ids.includes(e.from_candidate_id)&&ids.includes(e.to_candidate_id)&&normalizedIntent.sports.every(s=>[available.get(e.from_candidate_id),available.get(e.to_candidate_id)].some(c=>c.sports?.includes(s)))))))return unverifiedTransfer(normalizedIntent.responseLanguage==='fr'?'Je ne peux pas vérifier la contrainte de trajet.':'I could not verify the required travel limit.');
         return finish('results',clean(action.message),ids.map(id=>available.get(id)));
       }else{emit('reject','Unknown action type');return finish('insufficient','The agent returned an unsupported action.');}
     }

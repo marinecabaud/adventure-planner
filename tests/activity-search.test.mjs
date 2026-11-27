@@ -46,3 +46,22 @@ test('weather request for discovered location without sourced coordinates return
  const res=await createHarness({model,fixtures:{},activitySearchTool:async i=>parseActivitySearch(payload([row]),i),weatherTool:async()=>{throw Error('Must not call NOAA with null coordinates')},clock:()=>new Date('2026-11-26T20:00:00Z')}).run({query:'Sea Ranch run'});
  assert.equal(res.status,'results');assert.equal(res.weatherEvidence[0].data.status,'unavailable');
 });
+test('discovery receives explicit transfer limit',async()=>{
+ let body;const tool=createActivitySearch({apiKey:'test-secret',model:'test-model',fetchFn:async(u,req)=>{body=JSON.parse(req.body);return Response.json(payload([row]))}});
+ await tool({...intent,maxTransferMinutes:60});
+ assert.equal(JSON.parse(body.input).maxTransferMinutes,60);
+ assert.match(body.instructions,/BOTH requested sports/);
+});
+test('failed mandatory transfer offers separate exploratory leads, never accepted results',async()=>{
+ const model={extractIntent:async()=>({...raw,maxTransferMinutes:60}),next:async({events})=>events.length?{type:'final',status:'insufficient',message:'Transfer unverified',candidate_ids:[]}:{type:'tool',name:'search_activity_locations',args:{}}};
+ const res=await createHarness({model,fixtures:{},activitySearchTool:async i=>parseActivitySearch(payload([row]),i)}).run({query:'Run with max transfer 60 minutes'});
+ assert.equal(res.status,'insufficient');assert.deepEqual(res.candidates,[]);assert.equal(res.exploratoryCandidates.length,1);assert.match(res.message,/travel limit has not been verified/);
+});
+test('transfer evidence must link returned sites and cover requested sports',async()=>{
+ const spots=[{...row,name:'Ski venue',sports:['Ski / snowboard'],lat:39,lon:-120},{...row,name:'Trail A',lat:39.1,lon:-120},{...row,name:'Trail B',lat:39.2,lon:-120}];
+ for(const testCase of [{ids:['web-0','web-1'],seconds:1800,expected:'results'},{ids:['web-0','web-2'],seconds:1800,expected:'insufficient'},{ids:['web-0','web-1'],seconds:3600,expected:'insufficient'}]){
+  const model={extractIntent:async()=>({...raw,sports:['Ski / snowboard',sport],maxTransferMinutes:60}),next:async({events})=>events.length===0?{type:'tool',name:'search_activity_locations',args:{}}:events.length===2?{type:'tool',name:'get_drive_estimate',args:{from_candidate_id:'web-0',to_candidate_id:'web-1'}}:{type:'final',status:'results',message:'Provisional.',candidate_ids:testCase.ids}};
+  const res=await createHarness({model,fixtures:{},activitySearchTool:async i=>parseActivitySearch(payload(spots),i),routeTool:async()=>({status:'estimate_available',durationSeconds:testCase.seconds,distanceMeters:10000})}).run({query:'Ski and run less than 60 minutes apart'});
+  assert.equal(res.status,testCase.expected);if(testCase.expected==='insufficient')assert.equal(res.exploratoryCandidates.length,3);
+ }
+});

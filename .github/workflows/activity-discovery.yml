@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/activity-discovery.yml']
+    paths: ['.github/workflows/activity-discovery.yml', 'integrations/activity-search.mjs', 'dist/harness.mjs', 'models/openai-model.mjs']
 permissions:
   contents: read
 jobs:

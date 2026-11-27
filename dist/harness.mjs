@@ -70,11 +70,11 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
         }else if(action.name==='check_evidence'&&Object.keys(args).length===1&&Array.isArray(args.candidate_ids)&&args.candidate_ids.length<=3&&args.candidate_ids.every(id=>available.has(id))){
           const rows=args.candidate_ids.map(id=>({id,requiredChecks:available.get(id).check,verified:false,sourceType:available.get(id).evidence}));rows.forEach(x=>checked.add(x.id));
           calls++;emit('tool',action.name);events.push({kind:'observation',name:action.name,data:rows});
-        }else if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible)&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&Number.isFinite(available.get(args.candidate_id).lat)&&Number.isFinite(available.get(args.candidate_id).lon)&&state.preferences.startDate&&state.preferences.endDate){
+        }else if(weatherTool&&(!normalizedIntent||normalizedIntent.forecastEligible)&&action.name==='get_weather_forecast'&&Object.keys(args).length===1&&available.has(args.candidate_id)&&state.preferences.startDate&&state.preferences.endDate){
           const candidate=available.get(args.candidate_id);
           calls++;emit('tool',action.name);
           let data;
-          try{data=await weatherTool({latitude:candidate.lat,longitude:candidate.lon,startDate:state.preferences.startDate,endDate:state.preferences.endDate});}
+          try{data=Number.isFinite(candidate.lat)&&Number.isFinite(candidate.lon)?await weatherTool({latitude:candidate.lat,longitude:candidate.lon,startDate:state.preferences.startDate,endDate:state.preferences.endDate}):{status:'unavailable',reason:'No sourced coordinates for this location.'};}
           catch{data={status:'unavailable',reason:'Weather MCP call failed.'};}
           if(!data||typeof data.status!=='string')data={status:'unavailable',reason:'Invalid weather tool response.'};
           weatherEvidence.push({candidate_id:candidate.id,data});events.push({kind:'observation',name:action.name,data:{candidate_id:candidate.id,...data}});
@@ -92,7 +92,15 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
         }else{emit('reject','Unregistered tool or invalid arguments');return finish('insufficient','The agent requested an unsupported research action.');}
       }else if(action.type==='final'){
         if(!outcomes.has(action.status)||!clean(action.message)){emit('reject','Invalid final response');return finish('insufficient','The agent could not produce a valid response.');}
-        if(action.status!=='results')return finish(action.status,clean(action.message));
+        if(action.status!=='results'){
+          // Discovery is not a confirmed itinerary. Preserve sourced leads rather than suppressing
+          // them solely because access/condition checks are unavailable for an ordinary request.
+          if(action.status==='insufficient'&&liveDiscovery&&available.size&&!normalizedIntent.maxOriginDriveMinutes&&!normalizedIntent.maxTransferMinutes){
+            const label=normalizedIntent.responseLanguage==='fr'?' Voici des pistes issues de sources web, et non un itinéraire confirmé. Vérifie les conditions, l’accès et la sécurité avant de partir.':' Here are web-sourced leads, not a confirmed itinerary. Verify conditions, access and safety before visiting.';
+            return finish('results',clean(action.message)+label,[...available.values()].slice(0,3));
+          }
+          return finish(action.status,clean(action.message));
+        }
         const ids=action.candidate_ids;
         if(!Array.isArray(ids)||ids.length===0||ids.length>3||new Set(ids).size!==ids.length||ids.some(id=>!available.has(id)||!checked.has(id))){
           emit('reject','Result lacks candidate and evidence provenance');return finish('insufficient','The candidate evidence was incomplete.');

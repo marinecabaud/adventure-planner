@@ -1,0 +1,30 @@
+name: Adventure Planner live discovery
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/activity-discovery.yml']
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Test hosted worker and harness
+        run: node --test tests/*.test.mjs
+      - name: Run three original prompts using real search
+        env:
+          OPENAI_API_KEY: ${{ secrets.ADVENTURE_PLANNER }}
+        run: node evals/run-activity-discovery-live.mjs
+      - name: Save actual responses and source URLs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-discovery-live
+          path: evals/results/activity-discovery-live.json
+          if-no-files-found: warn

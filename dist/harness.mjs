@@ -11,15 +11,15 @@ export const toolDefinitions = [
 const outcomes=new Set(['results','clarify','unsupported','insufficient']);
 const sports=['ski / snowboard','kitesurf','hiking','mountain biking','surf','trail running','cycling'];
 const clean=s=>typeof s==='string'?s.trim():'';
-export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,activitySearchTool=null,onTrace=()=>{},clock=()=>new Date()}){
+export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=null,routeTool=null,activitySearchTool=null,geocodeTool=null,onTrace=()=>{},clock=()=>new Date()}){
   if(typeof model?.next!=='function'&&typeof model?.createSession!=='function')throw new Error('Model adapter must implement next(context) or createSession()');
   return {async run(request){
-    const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let weatherEvidence=[];let routeEvidence=[];let normalizedIntent=null;
+    const trace=[];const events=[];let calls=0;let available=new Map();let checked=new Set();let geocodingEvidence=[];let weatherEvidence=[];let routeEvidence=[];let normalizedIntent=null;
     const emit=(type,detail)=>{const event={step:trace.length+1,type,detail};trace.push(event);try{onTrace(event)}catch{}};
     function finish(status,message,candidates=[]){
       emit('finish',status);
       const disclosure=assumptionMessage(normalizedIntent);
-      return {status,message:disclosure?disclosure+' '+message:message,candidates,normalizedIntent,weatherEvidence,routeEvidence,trace,metrics:{toolCalls:calls,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:activitySearchTool&&normalizedIntent?'web_discovery':'fixture'};
+      return {status,message:disclosure?disclosure+' '+message:message,candidates,normalizedIntent,weatherEvidence,routeEvidence,geocodingEvidence,trace,metrics:{toolCalls:calls,geocodedCandidates:geocodingEvidence.filter(x=>x.status==='resolved').length,modelSteps:events.filter(x=>x.kind==='decision').length},evidenceMode:activitySearchTool&&normalizedIntent?'web_discovery':'fixture'};
     }
     if(!clean(request?.query))return finish('clarify','Tell me which sports, dates or destination you have in mind.');
     const state={query:clean(request.query),preferences:{dates:clean(request.preferences?.dates),skill:clean(request.preferences?.skill),origin:clean(request.preferences?.origin),startDate:clean(request.preferences?.startDate),endDate:clean(request.preferences?.endDate),maxTransferMinutes:Number.isFinite(request.preferences?.maxTransferMinutes)&&request.preferences.maxTransferMinutes>0?request.preferences.maxTransferMinutes:null}};
@@ -59,6 +59,17 @@ export function createHarness({model,fixtures,maxSteps=6,maxCalls=4,weatherTool=
           searched=true;calls++;emit('tool',action.name);
           let result;try{result=await activitySearchTool(normalizedIntent)}catch{result={status:'unavailable',candidates:[]}}
           const records=Array.isArray(result?.candidates)?result.candidates.slice(0,3).filter(x=>x.evidence==='web_discovery'&&x.geography==='California'&&typeof x.sourceUrl==='string'&&x.sourceUrl.startsWith('https://')):[];
+          if(geocodeTool&&records.length){
+            emit('geocoding_start','geocode_activity_locations');
+            for(const candidate of records){
+              let geo;try{geo=await geocodeTool(candidate)}catch{}
+              const valid=geo?.coordinateEvidence?.status==='resolved'&&Number.isFinite(geo.lat)&&Number.isFinite(geo.lon)&&geo.lat>=32.5&&geo.lat<=42&&geo.lon>=-124.6&&geo.lon<=-114;
+              candidate.lat=valid?geo.lat:null;candidate.lon=valid?geo.lon:null;
+              candidate.coordinateEvidence=valid?geo.coordinateEvidence:{provider:'Photon / OpenStreetMap',status:['no_match','ambiguous','unavailable'].includes(geo?.coordinateEvidence?.status)?geo.coordinateEvidence.status:'unavailable'};
+              geocodingEvidence.push({candidate_id:candidate.id,...candidate.coordinateEvidence});
+            }
+            emit('geocoding_finish',geocodingEvidence.filter(x=>x.status==='resolved').length+'/'+records.length+' representative locations resolved');
+          }
           records.forEach(x=>{available.set(x.id,x);checked.add(x.id)});
           events.push({kind:'observation',name:action.name,data:{status:result?.status||'unavailable',candidates:records}});
         }else if(!liveDiscovery&&action.name==='find_candidates' &&Object.keys(args).length===1&&Object.hasOwn(fixtures,args.scenario)){
